@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./posters:/app/posters
+    environment:
+      - DATABASE_URL=sqlite:///./data/douban250.db
+      - DOUBAN_USER_ID=
+      - DOUBAN_COOKIE=
+      - CRON_EXPRESSION=0 3 * * 0
+      - DOUBAN_REQUEST_DELAY=2.0
+    restart: unless-stopped

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Data & posters
+backend/data/
+backend/posters/
+
+# Environment
+.env
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+frontend/node_modules/
+
+# Docker
+docker/data/
+docker/posters/

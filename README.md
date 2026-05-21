@@ -30,11 +30,29 @@
 
 ### 方式一：Docker 部署（推荐）
 
+**快速启动（无需克隆仓库）**
+
 ```bash
-docker compose up -d
+docker run -d \
+  --name douban250 \
+  -p 8000:8000 \
+  -v ./data:/app/data \
+  -v ./posters:/app/posters \
+  -e DOUBAN_USER_ID=你的豆瓣用户ID \
+  -e DOUBAN_COOKIE=你的Cookie \
+  --restart unless-stopped \
+  timoyoung/douban250:latest
 ```
 
 启动后访问 http://localhost:8000
+
+**或使用 Docker Compose（克隆仓库后）**
+
+```bash
+git clone https://github.com/TimoYoung/douban250.git
+cd douban250
+docker compose up -d
+```
 
 ### 方式二：本地开发
 

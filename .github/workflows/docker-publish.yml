@@ -20,6 +20,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Generate tag
+        id: meta
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          DATE_TAG=$(date -u +%Y%m%d)
+          echo "tag=${DATE_TAG}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -36,21 +44,21 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.sha }}
-          name: ${{ github.sha }}
+          tag_name: v${{ steps.meta.outputs.tag }}
+          name: v${{ steps.meta.outputs.tag }}
           body: |
             ## Docker Image
 
             ```
             docker pull ${{ env.IMAGE_NAME }}:latest
-            docker pull ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            docker pull ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
             ```
 
             ## Changes

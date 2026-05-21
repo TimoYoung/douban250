@@ -4,8 +4,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
-      - ./posters:/app/posters
+      - ./backend/data:/app/data
+      - ./backend/posters:/app/posters
     environment:
       - DATABASE_URL=sqlite:///./data/douban250.db
       - DOUBAN_USER_ID=

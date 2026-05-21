@@ -8,8 +8,6 @@ __pycache__/
 # Data & posters
 backend/data/
 backend/posters/
-data/
-posters/
 
 # Environment
 .env

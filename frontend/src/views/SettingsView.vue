@@ -49,6 +49,50 @@
       </button>
     </div>
 
+    <!-- Doulist import -->
+    <div class="meta-backfill-card">
+      <h4>手动导入 Doulist</h4>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label style="font-size: 13px;">Doulist 链接</label>
+        <input
+          v-model="doulistUrl"
+          placeholder="https://www.douban.com/doulist/918989/"
+          :disabled="isDoulistImporting"
+        />
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label style="font-size: 13px;">版本日期</label>
+        <input
+          v-model="doulistTag"
+          type="date"
+          :disabled="isDoulistImporting"
+        />
+      </div>
+      <div v-if="settingsStore.doulistImportProgress?.active" class="meta-progress">
+        <div class="progress-message">{{ settingsStore.doulistImportProgress.message }}</div>
+        <div v-if="settingsStore.doulistImportProgress.page_total" class="progress-bar">
+          <div class="progress-fill" :style="{ width: doulistPercent + '%' }"></div>
+        </div>
+        <div class="progress-detail">
+          第 {{ settingsStore.doulistImportProgress.page_current }}/{{ settingsStore.doulistImportProgress.page_total }} 页，
+          已爬取 {{ settingsStore.doulistImportProgress.movies_found }} 部电影
+        </div>
+      </div>
+      <div v-else-if="settingsStore.doulistImportProgress?.success" class="meta-status" style="color: #52c41a;">
+        {{ settingsStore.doulistImportProgress.message }}
+      </div>
+      <div v-else-if="settingsStore.doulistImportProgress?.error" class="meta-status error">
+        {{ settingsStore.doulistImportProgress.message }}
+      </div>
+      <button
+        class="meta-btn"
+        :disabled="isDoulistImporting || !doulistUrl || !doulistTag"
+        @click="onDoulistImport"
+      >
+        {{ isDoulistImporting ? '导入中...' : '导入' }}
+      </button>
+    </div>
+
     <div class="settings-form">
       <div class="form-group">
         <label>Top 250 Cron 表达式</label>
@@ -107,6 +151,11 @@ import CrawlStatus from '../components/CrawlStatus.vue'
 const settingsStore = useSettingsStore()
 let progressInterval = null
 
+const doulistUrl = ref('')
+const doulistTag = ref('')
+
+const isDoulistImporting = computed(() => settingsStore.doulistImportProgress?.active || false)
+
 const cookieWarning = computed(() => {
   if (settingsStore.doubanCookie && settingsStore.cookieCheck && !settingsStore.cookieCheck.valid) {
     return settingsStore.cookieCheck.message
@@ -120,6 +169,12 @@ const metaPercent = computed(() => {
   return Math.round(p.done / p.total * 100)
 })
 
+const doulistPercent = computed(() => {
+  const p = settingsStore.doulistImportProgress
+  if (!p || !p.page_total) return 0
+  return Math.round(p.page_current / p.page_total * 100)
+})
+
 onMounted(async () => {
   await Promise.all([
     settingsStore.loadSettings(),
@@ -129,10 +184,12 @@ onMounted(async () => {
     settingsStore.loadMetadataProgress(),
     settingsStore.loadMetadataStatus(),
     settingsStore.loadCookieCheck(),
+    settingsStore.loadDoulistImportProgress(),
   ])
   progressInterval = setInterval(async () => {
     await settingsStore.loadCrawlProgress()
     await settingsStore.loadMetadataProgress()
+    await settingsStore.loadDoulistImportProgress()
     if (!settingsStore.crawlProgress?.active && !settingsStore.metadataProgress?.active) {
       await Promise.all([
         settingsStore.loadTop250Status(),
@@ -175,6 +232,11 @@ async function onTriggerUserScrapeFull() {
 
 async function onTriggerMeta() {
   await settingsStore.triggerMetadataBackfill()
+}
+
+async function onDoulistImport() {
+  if (!doulistUrl.value || !doulistTag.value) return
+  await settingsStore.triggerDoulistImport(doulistUrl.value, doulistTag.value)
 }
 </script>
 

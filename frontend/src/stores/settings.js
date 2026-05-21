@@ -5,6 +5,7 @@ import {
   fetchCrawlStatus, fetchCrawlProgress,
   fetchTop250Status, fetchUserWatchedStatus,
   fetchMetadataProgress, fetchMetadataStatus, fetchCookieCheck,
+  triggerDoulistImport, fetchDoulistImportProgress,
 } from '../api/index.js'
 
 export const useSettingsStore = defineStore('settings', {
@@ -22,6 +23,7 @@ export const useSettingsStore = defineStore('settings', {
     metadataStatus: null,
     cookieCheck: null,
     checkingCookie: false,
+    doulistImportProgress: null,
     loading: false,
     saving: false,
   }),
@@ -119,6 +121,16 @@ export const useSettingsStore = defineStore('settings', {
       } finally {
         this.checkingCookie = false
       }
+    },
+
+    async triggerDoulistImport(url, tag) {
+      await triggerDoulistImport(url, tag)
+      await this.loadDoulistImportProgress()
+    },
+
+    async loadDoulistImportProgress() {
+      const { data } = await fetchDoulistImportProgress()
+      this.doulistImportProgress = data
     },
   },
 })

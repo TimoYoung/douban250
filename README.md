@@ -14,7 +14,7 @@
 - **可视化展示** — 海报视图、列表视图、气泡视图（一屏看 250 部电影）、排名历史折线图
 - **排名变化** — 电影卡片和列表条目直观展示排名变动（新上榜 / 上升 / 下降）
 - **Docker 部署** — 多阶段构建，一键启动，前后端打包为单一镜像
-- **CI/CD** — GitHub Actions 自动构建镜像并推送到 Docker Hub，自动创建 Release
+- **手动导入 Doulist** — 在设置页面输入豆瓣豆列链接和日期版本，手动创建历史版本
 - **时区** — 所有时间均为北京时间（UTC+8）
 
 ## 技术栈
@@ -23,7 +23,7 @@
 |------|------|
 | 后端 | Python 3.12 · FastAPI · SQLAlchemy · httpx · BeautifulSoup4 · APScheduler |
 | 前端 | Vue 3 · Vite · Pinia · Vue Router · ECharts |
-| 部署 | Docker · Docker Compose · GitHub Actions |
+| 部署 | Docker · Docker Compose |
 | 数据库 | SQLite（默认）· MySQL · PostgreSQL 可选 |
 
 ## 快速开始
@@ -116,21 +116,6 @@ DOUBAN_REQUEST_DELAY=2.0
 
 Cookie 可在设置页面配置和验证（支持手动检查有效性），系统会自动检测 Cookie 是否过期。
 
-## CI/CD
-
-推送到 `main` 分支后，GitHub Actions 自动执行：
-
-1. 构建前后端 Docker 镜像（多阶段构建）
-2. 推送到 Docker Hub
-3. 创建 GitHub Release
-
-需在仓库 Settings → Secrets 配置：
-
-| Secret | 说明 |
-|--------|------|
-| `DOCKERHUB_USERNAME` | Docker Hub 用户名 |
-| `DOCKERHUB_TOKEN` | Docker Hub Access Token |
-
 ## 项目结构
 
 ```
@@ -148,6 +133,7 @@ douban250/
 │   │   │   ├── crawler.py     # Top 250 爬虫
 │   │   │   ├── user_scraper.py # 用户看过列表爬虫（增量/全量）
 │   │   │   ├── metadata.py    # 元数据补全、详情页解析
+│   │   │   ├── doulist_importer.py # Doulist 导入服务
 │   │   │   ├── scheduler.py   # APScheduler 定时任务
 │   │   │   └── differ.py      # 版本差异计算
 │   │   ├── utils/             # HTTP 客户端、HTML 解析
@@ -197,8 +183,10 @@ douban250/
 | POST | `/api/crawl` | 手动触发 Top 250 爬取 |
 | POST | `/api/crawl/user-watched?full=false` | 手动触发用户看过列表同步（增量/全量） |
 | POST | `/api/crawl/metadata?force=false` | 手动触发元数据补全 |
+| POST | `/api/crawl/doulist` | 手动导入 Doulist 创建版本（body: `{url, tag}`） |
 | GET | `/api/crawl/progress` | 爬取实时进度 |
 | GET | `/api/crawl/metadata/progress` | 元数据补全实时进度 |
+| GET | `/api/crawl/doulist/progress` | Doulist 导入实时进度 |
 | GET | `/api/crawl/status` | 最近一次爬取状态 |
 | GET | `/api/crawl/status/top250` | Top 250 爬取状态 |
 | GET | `/api/crawl/status/user-watched` | 用户爬取状态 |

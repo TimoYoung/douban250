@@ -73,18 +73,20 @@ onMounted(() => {
 .back-link {
   display: inline-block;
   margin-bottom: 16px;
-  color: #1890ff;
+  color: #6366f1;
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .detail-header {
   display: flex;
   gap: 24px;
   background: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 24px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(228, 228, 231, 0.6);
 }
 
 .detail-poster {
@@ -94,51 +96,64 @@ onMounted(() => {
 
 .detail-poster img {
   width: 100%;
-  border-radius: 8px;
+  border-radius: 10px;
+  display: block;
 }
 
 .no-poster {
   width: 200px;
   height: 300px;
-  background: #f0f0f0;
-  border-radius: 8px;
+  background: #f4f4f5;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #999;
+  color: #a1a1aa;
+  font-size: 13px;
 }
 
 .detail-info h1 {
-  font-size: 24px;
+  font-size: 22px;
+  font-weight: 600;
   margin-bottom: 4px;
+  color: #18181b;
+  letter-spacing: -0.3px;
 }
 
 .original-title {
-  color: #999;
+  color: #a1a1aa;
   margin-bottom: 16px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .meta-grid {
   display: grid;
-  gap: 8px;
-  font-size: 14px;
-  line-height: 1.8;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #52525b;
+}
+
+.meta-grid strong {
+  color: #a1a1aa;
+  font-weight: 500;
 }
 
 .watched-tag {
   display: inline-block;
-  padding: 2px 12px;
-  background: #f6ffed;
-  color: #52c41a;
-  border-radius: 4px;
-  font-size: 13px;
+  padding: 2px 10px;
+  background: #ecfdf5;
+  color: #10b981;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .douban-link {
-  color: #1890ff;
+  color: #6366f1;
   text-decoration: none;
   font-size: 13px;
+  font-weight: 500;
 }
 
 .douban-link:hover {
@@ -147,28 +162,30 @@ onMounted(() => {
 
 .tagline {
   margin-top: 16px;
-  color: #666;
+  color: #71717a;
   font-style: italic;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .detail-section {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 24px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(228, 228, 231, 0.6);
 }
 
 .detail-section h3 {
-  font-size: 16px;
+  font-size: 14px;
+  font-weight: 600;
   margin-bottom: 12px;
-  color: #333;
+  color: #18181b;
 }
 
 .summary {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.8;
-  color: #555;
+  color: #52525b;
   text-indent: 2em;
   margin-bottom: 8px;
 }
@@ -176,14 +193,49 @@ onMounted(() => {
 .single-version {
   text-align: center;
   padding: 40px;
-  color: #999;
+  color: #a1a1aa;
   background: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(228, 228, 231, 0.6);
+  font-size: 13px;
 }
 
 .loading {
   text-align: center;
   padding: 40px;
-  color: #999;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .detail-header {
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px;
+    gap: 16px;
+  }
+  .detail-poster {
+    width: 160px;
+  }
+  .no-poster {
+    width: 160px;
+    height: 240px;
+  }
+  .detail-info {
+    width: 100%;
+  }
+  .detail-info h1 {
+    font-size: 18px;
+    text-align: center;
+  }
+  .original-title {
+    text-align: center;
+  }
+  .tagline {
+    text-align: center;
+  }
+  .detail-section {
+    padding: 16px;
+  }
 }
 </style>

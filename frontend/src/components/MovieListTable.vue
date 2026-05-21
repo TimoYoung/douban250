@@ -47,8 +47,9 @@ defineProps({
 <style scoped>
 .movie-list-table {
   background: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
+  border: 1px solid rgba(228, 228, 231, 0.6);
 }
 
 .movie-list-table table {
@@ -59,69 +60,78 @@ defineProps({
 
 .movie-list-table th {
   background: #fafafa;
-  padding: 8px 12px;
+  padding: 10px 16px;
   text-align: left;
   font-weight: 500;
-  color: #666;
-  border-bottom: 1px solid #f0f0f0;
+  color: #a1a1aa;
+  border-bottom: 1px solid #f4f4f5;
   white-space: nowrap;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .movie-list-table td {
-  padding: 6px 12px;
-  border-bottom: 1px solid #f5f5f5;
+  padding: 8px 16px;
+  border-bottom: 1px solid #f4f4f5;
   cursor: pointer;
 }
 
+.movie-list-table tr:last-child td {
+  border-bottom: none;
+}
+
 .movie-list-table tr:hover td {
-  background: #f5f8ff;
+  background: #f5f3ff;
 }
 
 .movie-list-table tr.watched td {
-  background: #f6ffed;
+  background: #ecfdf5;
 }
 
 .col-rank {
-  width: 90px;
+  width: 100px;
   text-align: left;
   font-weight: 600;
-  color: #999;
+  color: #a1a1aa;
   white-space: nowrap;
 }
 
 .col-title {
   font-weight: 500;
+  color: #18181b;
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.col-year { width: 60px; color: #999; }
-.col-rating { width: 60px; color: #faad14; font-weight: 600; }
-.col-director { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #666; }
-.col-genre { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #666; }
+.col-year { width: 70px; color: #a1a1aa; }
+.col-rating { width: 70px; color: #f59e0b; font-weight: 600; }
+.col-director { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #71717a; }
+.col-genre { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #71717a; }
 
 .rank-badge {
   font-size: 10px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
   margin-left: 4px;
 }
 
-.rank-badge.new { background: #1890ff; color: #fff; }
-.rank-badge.up { background: #52c41a; color: #fff; }
-.rank-badge.down { background: #ff4d4f; color: #fff; }
+.rank-badge.new { background: #6366f1; color: #fff; }
+.rank-badge.up { background: #10b981; color: #fff; }
+.rank-badge.down { background: #f43f5e; color: #fff; }
 
 .watched-badge {
   display: inline-block;
   margin-left: 6px;
-  padding: 0 4px;
-  background: #52c41a;
+  padding: 1px 5px;
+  background: #10b981;
   color: #fff;
   font-size: 10px;
-  border-radius: 2px;
+  border-radius: 4px;
   vertical-align: middle;
+  font-weight: 500;
 }
 </style>

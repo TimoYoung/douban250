@@ -140,28 +140,43 @@ function loadData() {
   align-items: center;
   margin-bottom: 16px;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
 }
 
 .toolbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .search-input {
   padding: 6px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  font-size: 14px;
-  width: 200px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  font-size: 13px;
+  width: 180px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
 .filter-select {
   padding: 6px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  font-size: 14px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
 .view-toggles {
@@ -170,15 +185,18 @@ function loadData() {
 
 .view-toggle {
   padding: 6px 12px;
-  border: 1px solid #d9d9d9;
+  border: 1px solid #e4e4e7;
   background: #fff;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
+  transition: all 0.15s;
+  color: #71717a;
 }
 
 .view-toggle:first-child {
-  border-radius: 4px 0 0 4px;
+  border-radius: 8px 0 0 8px;
 }
 
 .view-toggle:nth-child(2) {
@@ -187,13 +205,33 @@ function loadData() {
 }
 
 .view-toggle:last-child {
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 8px 8px 0;
 }
 
 .view-toggle.active {
-  background: #1890ff;
+  background: #6366f1;
   color: #fff;
-  border-color: #1890ff;
+  border-color: #6366f1;
+}
+
+.view-toggle:hover:not(.active) {
+  background: #fafafa;
+  color: #3f3f46;
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbar-right {
+    justify-content: flex-start;
+  }
+  .search-input {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .movie-grid {

@@ -57,15 +57,21 @@ function loadDiff() {
 <style scoped>
 .version-diff-view h2 {
   margin-bottom: 16px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #18181b;
+  letter-spacing: -0.3px;
 }
 
 .diff-controls {
   display: flex;
-  gap: 24px;
+  gap: 16px;
   margin-bottom: 24px;
   background: #fff;
-  padding: 16px;
-  border-radius: 8px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(228, 228, 231, 0.6);
+  flex-wrap: wrap;
 }
 
 .control-group {
@@ -75,24 +81,49 @@ function loadDiff() {
 }
 
 .control-group label {
-  font-size: 14px;
-  color: #666;
+  font-size: 13px;
+  color: #71717a;
   white-space: nowrap;
+  font-weight: 500;
 }
 
 .control-group select {
   padding: 6px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  font-size: 14px;
-  min-width: 160px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  font-size: 13px;
+  min-width: 140px;
+  flex: 1;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.control-group select:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
 .loading, .empty {
   text-align: center;
   padding: 40px;
-  color: #999;
+  color: #a1a1aa;
   background: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(228, 228, 231, 0.6);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .diff-controls {
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+  .control-group {
+    flex-wrap: nowrap;
+  }
+  .control-group select {
+    min-width: 0;
+  }
 }
 </style>

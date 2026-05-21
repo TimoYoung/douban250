@@ -2,8 +2,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.database import init_db
@@ -41,12 +42,22 @@ app.include_router(users.router, prefix="/api", tags=["users"])
 # Static files for posters
 app.mount("/posters", StaticFiles(directory=str(settings.posters_dir)), name="posters")
 
-# Static files for frontend (if built dist exists)
-frontend_dist = Path("static")
-if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
-
 
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+
+# Frontend static files (must be last — catch-all)
+frontend_dist = Path("static")
+if frontend_dist.exists():
+    @app.api_route("/{path:path}", methods=["GET"])
+    async def serve_frontend(request: Request, path: str):
+        # Let API routes pass through
+        if path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
+        file_path = frontend_dist / path
+        if path and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(frontend_dist / "index.html"))

@@ -1,0 +1,11 @@
+backend/data
+backend/posters
+backend/scripts
+backend/__pycache__
+backend/.venv
+**/__pycache__
+**/*.pyc
+.git
+.env
+*.log
+.DS_Store

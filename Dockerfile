@@ -13,15 +13,17 @@ WORKDIR /app
 # Install uv
 RUN pip install uv
 
-# Copy backend dependencies
-COPY backend/pyproject.toml ./
-RUN uv pip install --system -e ".[mysql,postgres]" 2>/dev/null || uv pip install --system -e .
+# Copy dependency files first for layer caching
+COPY backend/pyproject.toml backend/uv.lock ./
+
+# Install dependencies using lock file for fast, reproducible builds
+RUN uv sync --no-dev
 
 # Copy backend code
 COPY backend/ ./
 
 # Copy frontend build output
-COPY --from=frontend-build /app/frontend/dist ./static
+COPY --from=frontend-build /app/backend/static ./static
 
 # Create directories
 RUN mkdir -p data posters

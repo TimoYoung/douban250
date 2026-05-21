@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build, Push and Release
 
 on:
   push:
@@ -11,10 +11,14 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -35,3 +39,21 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.sha }}
+          name: ${{ github.sha }}
+          body: |
+            ## Docker Image
+
+            ```
+            docker pull ${{ env.IMAGE_NAME }}:latest
+            docker pull ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ```
+
+            ## Changes
+
+            ${{ github.event.head_commit.message }}
+          generate_release_notes: true

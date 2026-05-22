@@ -29,6 +29,14 @@ export function fetchVersionDiff(versionId, compareId, topN = 10) {
   })
 }
 
+export function deleteVersion(id) {
+  return api.delete(`/versions/${id}`)
+}
+
+export function updateVersion(id, data) {
+  return api.patch(`/versions/${id}`, data)
+}
+
 // Settings
 export function fetchSettings() {
   return api.get('/settings')

@@ -8,7 +8,7 @@
       <div class="nav-links">
         <router-link to="/movies">电影列表</router-link>
         <router-link to="/versions">版本对比</router-link>
-        <router-link to="/settings">设置</router-link>
+        <router-link to="/settings">控制台</router-link>
       </div>
     </nav>
     <main class="main-content">

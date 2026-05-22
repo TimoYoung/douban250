@@ -38,7 +38,7 @@ class Version(Base):
     crawled_at = Column(DateTime(timezone=True), nullable=False)
     movie_count = Column(Integer, nullable=False, default=250)
 
-    entries = relationship("VersionEntry", back_populates="version", order_by="VersionEntry.rank")
+    entries = relationship("VersionEntry", back_populates="version", order_by="VersionEntry.rank", cascade="all, delete-orphan")
 
 
 class VersionEntry(Base):

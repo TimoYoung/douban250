@@ -11,7 +11,7 @@
           class="search-input"
           placeholder="搜索电影..."
           v-model="searchText"
-          @keyup.enter="onSearch"
+          @input="onSearchInput"
         />
         <select v-model="watchedFilter" @change="onFilterChange" class="filter-select">
           <option value="all">全部</option>
@@ -108,6 +108,17 @@ function onFilterChange() {
   store.watchedFilter = watchedFilter.value
   store.page = 1
   loadData()
+}
+
+let searchTimer = null
+
+function onSearchInput() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    store.search = searchText.value
+    store.page = 1
+    loadData()
+  }, 300)
 }
 
 function onSearch() {

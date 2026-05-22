@@ -6,6 +6,7 @@ import {
   fetchTop250Status, fetchUserWatchedStatus,
   fetchMetadataProgress, fetchMetadataStatus, fetchCookieCheck,
   triggerDoulistImport, fetchDoulistImportProgress,
+  fetchVersions, deleteVersion, updateVersion,
 } from '../api/index.js'
 
 export const useSettingsStore = defineStore('settings', {
@@ -24,11 +25,13 @@ export const useSettingsStore = defineStore('settings', {
     cookieCheck: null,
     checkingCookie: false,
     doulistImportProgress: null,
+    versions: [],
     loading: false,
     saving: false,
   }),
 
   actions: {
+    // Settings
     async loadSettings() {
       this.loading = true
       try {
@@ -63,6 +66,7 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
+    // Crawl
     async triggerCrawl() {
       await triggerCrawl()
       await this.loadCrawlStatus()
@@ -123,7 +127,8 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    async triggerDoulistImport(url, tag) {
+    // Doulist Import
+    async triggerDoulistImportAction(url, tag) {
       await triggerDoulistImport(url, tag)
       await this.loadDoulistImportProgress()
     },
@@ -131,6 +136,25 @@ export const useSettingsStore = defineStore('settings', {
     async loadDoulistImportProgress() {
       const { data } = await fetchDoulistImportProgress()
       this.doulistImportProgress = data
+    },
+
+    // Versions
+    async loadVersions() {
+      const { data } = await fetchVersions()
+      this.versions = data
+    },
+
+    async removeVersion(id) {
+      await deleteVersion(id)
+      this.versions = this.versions.filter(v => v.id !== id)
+    },
+
+    async editVersionTag(id, tag) {
+      const { data } = await updateVersion(id, { tag })
+      const idx = this.versions.findIndex(v => v.id === id)
+      if (idx !== -1) {
+        this.versions[idx] = data
+      }
     },
   },
 })

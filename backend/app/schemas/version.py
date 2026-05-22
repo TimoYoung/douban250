@@ -11,6 +11,10 @@ class VersionInfo(BeijingBaseModel):
     movie_count: int
 
 
+class VersionUpdate(BeijingBaseModel):
+    tag: str
+
+
 class RankChange(BeijingBaseModel):
     douban_id: str
     title: str

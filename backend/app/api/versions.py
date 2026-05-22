@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Version
-from app.schemas.version import VersionInfo, VersionDiff
+from app.schemas.version import VersionInfo, VersionDiff, VersionUpdate
 from app.services.differ import compute_diff
 
 router = APIRouter()
@@ -19,7 +19,6 @@ def list_versions(db: Session = Depends(get_db)):
 def get_version(version_id: int, db: Session = Depends(get_db)):
     version = db.query(Version).filter(Version.id == version_id).first()
     if not version:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Version not found")
     return VersionInfo.model_validate(version)
 
@@ -31,8 +30,6 @@ def get_version_diff(
     top_n: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    from fastapi import HTTPException
-
     version_b = db.query(Version).filter(Version.id == version_id).first()
     if not version_b:
         raise HTTPException(status_code=404, detail="Version not found")
@@ -60,3 +57,30 @@ def get_version_diff(
         version_b=VersionInfo.model_validate(version_b),
         **diff,
     )
+
+
+@router.patch("/{version_id}", response_model=VersionInfo)
+def update_version(version_id: int, body: VersionUpdate, db: Session = Depends(get_db)):
+    version = db.query(Version).filter(Version.id == version_id).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    existing = db.query(Version).filter(Version.tag == body.tag, Version.id != version_id).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Tag already exists")
+
+    version.tag = body.tag
+    db.commit()
+    db.refresh(version)
+    return VersionInfo.model_validate(version)
+
+
+@router.delete("/{version_id}")
+def delete_version(version_id: int, db: Session = Depends(get_db)):
+    version = db.query(Version).filter(Version.id == version_id).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    db.delete(version)
+    db.commit()
+    return {"message": "ok"}

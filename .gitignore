@@ -31,3 +31,7 @@ frontend/node_modules/
 # Docker
 docker/data/
 docker/posters/
+
+# Frontend build output
+backend/static/
+raw/

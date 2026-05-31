@@ -1,7 +1,7 @@
 <template>
   <div
     class="movie-bubble"
-    :class="{ watched: movie.watched }"
+    :class="{ watched: movie.watched, highlighted: isMatch }"
     :title="`#${movie.rank} ${movie.title}`"
     @click="$router.push(`/movies/${movie.douban_id}`)"
   >
@@ -10,8 +10,16 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   movie: { type: Object, required: true },
+  highlight: { type: String, default: '' },
+})
+
+const isMatch = computed(() => {
+  if (!props.highlight) return false
+  return props.movie.title.toLowerCase().includes(props.highlight.toLowerCase())
 })
 </script>
 
@@ -40,5 +48,10 @@ defineProps({
 .movie-bubble.watched {
   background: #52c41a;
   color: #fff;
+}
+
+.movie-bubble.highlighted {
+  box-shadow: 0 0 0 2px #6366f1;
+  transform: scale(1.1);
 }
 </style>

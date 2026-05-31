@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Movie, Version, VersionEntry, WatchedMovie, Setting
-from app.schemas.movie import MovieListItem, MovieDetail, MovieBubble, PaginatedMovies
+from app.schemas.movie import MovieListItem, MovieDetail, MovieBubble, PaginatedMovies, GlobalSearchResult
 from app.config import settings
 
 router = APIRouter()
@@ -159,6 +159,68 @@ def get_bubbles(
             watched=movie.douban_id in watched_ids,
         )
         for entry, movie in entries
+    ]
+
+
+@router.get("/search", response_model=list[GlobalSearchResult])
+def global_search(
+    q: str = Query("", min_length=0),
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    if not q.strip():
+        return []
+
+    # Subquery: for each movie, find the latest version that contains it
+    latest = (
+        db.query(
+            VersionEntry.movie_id,
+            func.max(Version.tag).label("latest_tag"),
+        )
+        .join(Version, VersionEntry.version_id == Version.id)
+        .group_by(VersionEntry.movie_id)
+        .subquery()
+    )
+
+    rows = (
+        db.query(Movie, VersionEntry, Version)
+        .join(latest, Movie.id == latest.c.movie_id)
+        .join(
+            VersionEntry,
+            (VersionEntry.movie_id == Movie.id)
+            & (
+                VersionEntry.version_id
+                == db.query(Version.id)
+                .filter(Version.tag == latest.c.latest_tag)
+                .correlate(latest)
+                .scalar_subquery()
+            ),
+        )
+        .join(Version, VersionEntry.version_id == Version.id)
+        .filter(
+            or_(
+                Movie.title.ilike(f"%{q}%"),
+                Movie.original_title.ilike(f"%{q}%"),
+                Movie.director.ilike(f"%{q}%"),
+            )
+        )
+        .order_by(Version.tag.desc(), VersionEntry.rank)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        GlobalSearchResult(
+            movie_id=movie.id,
+            douban_id=movie.douban_id,
+            title=movie.title,
+            year=movie.year,
+            poster_path=movie.poster_path,
+            latest_version_id=version.id,
+            latest_version_tag=version.tag,
+            rank=entry.rank,
+        )
+        for movie, entry, version in rows
     ]
 
 

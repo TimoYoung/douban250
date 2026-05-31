@@ -1,6 +1,6 @@
 <template>
   <div class="bubble-grid">
-    <MovieBubble v-for="movie in movies" :key="movie.douban_id" :movie="movie" />
+    <MovieBubble v-for="movie in movies" :key="movie.douban_id" :movie="movie" :highlight="highlight" />
   </div>
 </template>
 
@@ -9,6 +9,7 @@ import MovieBubble from './MovieBubble.vue'
 
 defineProps({
   movies: { type: Array, required: true },
+  highlight: { type: String, default: '' },
 })
 </script>
 

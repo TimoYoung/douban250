@@ -3,23 +3,19 @@
     <h2>版本对比</h2>
 
     <div class="diff-controls">
-      <div class="control-group">
-        <label>当前版本：</label>
-        <select v-model="selectedVersion" @change="loadDiff">
-          <option v-for="v in versionsStore.versions" :key="v.id" :value="v.id">
-            {{ v.tag }}
-          </option>
-        </select>
-      </div>
-      <div class="control-group">
-        <label>对比版本：</label>
-        <select v-model="compareVersion" @change="loadDiff">
-          <option :value="null">上一版本</option>
-          <option v-for="v in versionsStore.versions" :key="v.id" :value="v.id">
-            {{ v.tag }}
-          </option>
-        </select>
-      </div>
+      <VersionSelector
+        :versions="versionsStore.versions"
+        v-model="selectedVersion"
+        label="当前版本："
+        @update:modelValue="loadDiff"
+      />
+      <VersionSelector
+        :versions="versionsStore.versions"
+        v-model="compareVersion"
+        label="对比版本："
+        defaultOption="上一版本"
+        @update:modelValue="loadDiff"
+      />
     </div>
 
     <div v-if="versionsStore.loading" class="loading">加载中...</div>
@@ -33,23 +29,24 @@
 import { ref, onMounted } from 'vue'
 import { useVersionsStore } from '../stores/versions.js'
 import VersionDiff from '../components/VersionDiff.vue'
+import VersionSelector from '../components/VersionSelector.vue'
 
 const versionsStore = useVersionsStore()
 const selectedVersion = ref(null)
-const compareVersion = ref(null)
+const compareVersion = ref('')
 
 onMounted(async () => {
   await versionsStore.loadVersions()
   if (versionsStore.versions.length >= 2) {
     selectedVersion.value = versionsStore.versions[0].id
-    compareVersion.value = null
+    compareVersion.value = ''
     loadDiff()
   }
 })
 
 function loadDiff() {
   if (selectedVersion.value) {
-    versionsStore.loadDiff(selectedVersion.value, compareVersion.value)
+    versionsStore.loadDiff(selectedVersion.value, compareVersion.value || null)
   }
 }
 </script>
@@ -74,33 +71,8 @@ function loadDiff() {
   flex-wrap: wrap;
 }
 
-.control-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.control-group label {
-  font-size: 13px;
-  color: #71717a;
-  white-space: nowrap;
-  font-weight: 500;
-}
-
-.control-group select {
-  padding: 6px 12px;
-  border: 1px solid #e4e4e7;
-  border-radius: 8px;
-  font-size: 13px;
-  min-width: 140px;
-  flex: 1;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.control-group select:focus {
-  outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+.diff-controls :deep(.version-selector) {
+  margin-bottom: 0;
 }
 
 .loading, .empty {
@@ -118,12 +90,6 @@ function loadDiff() {
     flex-direction: column;
     gap: 12px;
     padding: 14px 16px;
-  }
-  .control-group {
-    flex-wrap: nowrap;
-  }
-  .control-group select {
-    min-width: 0;
   }
 }
 </style>

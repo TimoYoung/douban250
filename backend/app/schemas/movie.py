@@ -37,8 +37,8 @@ class MovieListItem(BeijingBaseModel):
 
 class MovieDetail(MovieBase):
     id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     rank_history: list[dict] = []
     current_rank: Optional[int] = None
     watched: bool = False
@@ -57,3 +57,14 @@ class PaginatedMovies(BeijingBaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class GlobalSearchResult(BeijingBaseModel):
+    movie_id: int
+    douban_id: str
+    title: str
+    year: Optional[int] = None
+    poster_path: Optional[str] = None
+    latest_version_id: int
+    latest_version_tag: str
+    rank: int

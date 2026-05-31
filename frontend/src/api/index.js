@@ -18,6 +18,10 @@ export function fetchMovie(doubanId) {
   return api.get(`/movies/by-douban/${doubanId}`)
 }
 
+export function searchMoviesGlobal(q, limit = 20) {
+  return api.get('/movies/search', { params: { q, limit } })
+}
+
 // Versions
 export function fetchVersions() {
   return api.get('/versions')

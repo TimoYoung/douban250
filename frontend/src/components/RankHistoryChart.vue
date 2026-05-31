@@ -13,38 +13,84 @@ const props = defineProps({
 const chartRef = ref(null)
 let chart = null
 
+function formatDate(ts) {
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function initChart() {
   if (!chartRef.value || !props.history.length) return
 
   if (chart) chart.dispose()
   chart = echarts.init(chartRef.value)
 
-  const tags = props.history.map(h => h.tag)
+  const len = props.history.length
+  const isDense = len > 15
+  const veryDense = len > 30
 
-  // For display: use rank value, or null for dropped versions
-  const ranks = props.history.map(h => h.dropped ? null : h.rank)
+  const rankData = []
+  const droppedData = []
 
-  // For dropped markers: use 251 (below chart) to show a marker
-  const droppedData = props.history.map(h => h.dropped ? 251 : null)
+  for (const h of props.history) {
+    const ts = new Date(h.tag).getTime()
+    if (h.dropped) {
+      rankData.push([ts, null])
+      droppedData.push([ts, 251])
+    } else {
+      rankData.push([ts, h.rank])
+    }
+  }
+
+  // 默认显示最后 12 个数据点
+  const allTs = props.history.map(h => new Date(h.tag).getTime())
+  const startPercent = isDense ? Math.max(0, (1 - 12 / len) * 100) : 0
 
   chart.setOption({
     title: { text: '排名历史', left: 'center' },
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
-        const tag = params[0].name
-        const item = props.history.find(h => h.tag === tag)
+        const p = params.find(p => p.value != null) || params[0]
+        if (!p) return ''
+        const date = formatDate(p.value[0])
+        // 查找对应的 history 项
+        const item = props.history.find(h => new Date(h.tag).getTime() === p.value[0])
         if (item?.dropped) {
-          return `${tag}<br/>未上榜`
+          return `${date}<br/>未上榜`
         }
-        const rank = params[0]?.value ?? params[1]?.value
-        return `${tag}<br/>排名: #${rank}`
+        return `${date}<br/>排名: #${p.value[1]}`
       },
     },
+    dataZoom: [
+      {
+        type: 'slider',
+        start: startPercent,
+        end: 100,
+        bottom: 10,
+        height: 20,
+        borderColor: '#e4e4e7',
+        fillerColor: 'rgba(99,102,241,0.08)',
+        handleStyle: { color: '#6366f1' },
+        show: isDense,
+      },
+      {
+        type: 'inside',
+        start: startPercent,
+        end: 100,
+        minSpan: Math.max(10, Math.min(50, (12 / len) * 100)),
+        maxSpan: 100,
+        zoomOnMouseWheel: false,
+      },
+    ],
     xAxis: {
-      type: 'category',
-      data: tags,
-      axisLabel: { rotate: 30 },
+      type: 'time',
+      axisLabel: {
+        rotate: 30,
+        formatter: (value) => formatDate(value),
+      },
     },
     yAxis: {
       type: 'value',
@@ -57,35 +103,33 @@ function initChart() {
       },
     },
     series: [
-      // Main rank line
       {
         name: '排名',
         type: 'line',
-        data: ranks,
+        data: rankData,
         connectNulls: false,
         smooth: true,
         symbol: 'circle',
-        symbolSize: 8,
+        symbolSize: veryDense ? 3 : isDense ? 4 : 8,
         lineStyle: { width: 2, color: '#1890ff' },
         itemStyle: { color: '#1890ff' },
         label: {
-          show: true,
+          show: !isDense,
           position: 'top',
-          formatter: (p) => p.value != null ? `#${p.value}` : '',
+          formatter: (p) => p.value?.[1] != null ? `#${p.value[1]}` : '',
           fontSize: 11,
           color: '#333',
         },
       },
-      // Dropped marker
       {
         name: '掉出榜单',
         type: 'scatter',
         data: droppedData,
         symbol: 'diamond',
-        symbolSize: 12,
+        symbolSize: veryDense ? 6 : isDense ? 8 : 12,
         itemStyle: { color: '#ff4d4f' },
         label: {
-          show: true,
+          show: !isDense,
           position: 'top',
           formatter: '未上榜',
           fontSize: 11,
@@ -94,7 +138,7 @@ function initChart() {
         },
       },
     ],
-    grid: { left: 60, right: 30, bottom: 60, top: 50 },
+    grid: { left: 60, right: 30, bottom: isDense ? 80 : 60, top: 50 },
   })
 }
 

@@ -13,6 +13,7 @@ export const useMoviesStore = defineStore('movies', {
     loading: false,
     watchedFilter: 'all',
     search: '',
+    viewMode: 'poster',
     globalResults: [],
   }),
 

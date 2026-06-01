@@ -101,7 +101,10 @@ import PaginationBar from '../components/PaginationBar.vue'
 const store = useMoviesStore()
 const versionsStore = useVersionsStore()
 
-const viewMode = ref('poster')
+const viewMode = computed({
+  get: () => store.viewMode,
+  set: (val) => { store.viewMode = val },
+})
 const watchedFilter = ref(store.watchedFilter || 'all')
 const searchText = ref(store.search || '')
 const showDropdown = ref(false)

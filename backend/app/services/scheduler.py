@@ -15,6 +15,7 @@ class CrawlScheduler:
         self._top250_job_id = "crawl_top250"
         self._user_job_id = "crawl_user_watched"
         self._meta_job_id = "metadata_backfill"
+        self._imdb_job_id = "crawl_imdb"
 
     def start(self):
         """Start the scheduler with configured cron expressions."""
@@ -28,8 +29,12 @@ class CrawlScheduler:
         if meta_cron:
             self._schedule_meta(meta_cron)
 
+        imdb_cron = self._get_setting("imdb_cron", "")
+        if imdb_cron:
+            self._schedule_imdb(imdb_cron)
+
         self.scheduler.start()
-        logger.info(f"Scheduler started. Top250: {top250_cron}, User: {user_cron or 'disabled'}, Metadata: {meta_cron}")
+        logger.info(f"Scheduler started. Top250: {top250_cron}, User: {user_cron or 'disabled'}, Metadata: {meta_cron}, IMDb: {imdb_cron or 'disabled'}")
 
     def shutdown(self, wait: bool = True):
         self.scheduler.shutdown(wait=wait)
@@ -69,6 +74,24 @@ class CrawlScheduler:
             logger.info(f"Metadata backfill rescheduled to: {cron_expression}")
         except Exception:
             self._schedule_meta(cron_expression)
+
+    def reschedule_imdb(self, cron_expression: str):
+        """Reschedule the IMDb crawl job."""
+        self._set_setting("imdb_cron", cron_expression)
+        try:
+            self.scheduler.reschedule_job(self._imdb_job_id, trigger=CronTrigger.from_crontab(cron_expression))
+            logger.info(f"IMDb crawl rescheduled to: {cron_expression}")
+        except Exception:
+            self._schedule_imdb(cron_expression)
+
+    def remove_imdb_job(self):
+        """Remove the IMDb crawl cron job."""
+        self._set_setting("imdb_cron", "")
+        try:
+            self.scheduler.remove_job(self._imdb_job_id)
+            logger.info("IMDb crawl job removed")
+        except Exception:
+            pass
 
     def _get_setting(self, key: str, default: str = "") -> str:
         db = SessionLocal()
@@ -136,6 +159,21 @@ class CrawlScheduler:
             replace_existing=True,
         )
 
+    def _schedule_imdb(self, cron_expression: str):
+        parts = cron_expression.strip().split()
+        self.scheduler.add_job(
+            _run_imdb,
+            trigger=CronTrigger(
+                minute=parts[0] if len(parts) > 0 else "*",
+                hour=parts[1] if len(parts) > 1 else "*",
+                day=parts[2] if len(parts) > 2 else "*",
+                month=parts[3] if len(parts) > 3 else "*",
+                day_of_week=parts[4] if len(parts) > 4 else "*",
+            ),
+            id=self._imdb_job_id,
+            replace_existing=True,
+        )
+
 
 def _run_top250():
     from app.services.crawler import crawl_top250
@@ -197,6 +235,23 @@ def _run_metadata():
         logger.info(f"Metadata backfill completed: {result}")
     except Exception as e:
         logger.error(f"Metadata backfill failed: {e}")
+
+
+def _run_imdb():
+    from app.services.imdb_crawler import crawl_imdb_top250, get_imdb_progress
+    from app.services.crawler import crawl_progress
+
+    progress = get_imdb_progress()
+    if progress["status"] == "running" or crawl_progress["active"]:
+        logger.warning("Crawl already running, skipping scheduled IMDb crawl")
+        return
+
+    logger.info("Starting scheduled IMDb Top 250 crawl...")
+    try:
+        result = crawl_imdb_top250(SessionLocal)
+        logger.info(f"IMDb crawl completed: {result}")
+    except Exception as e:
+        logger.error(f"IMDb crawl failed: {e}")
 
 
 scheduler = CrawlScheduler()

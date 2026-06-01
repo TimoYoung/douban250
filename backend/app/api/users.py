@@ -16,12 +16,14 @@ def get_settings(db: Session = Depends(get_db)):
     cookie = _get_setting(db, "douban_cookie", settings.douban_cookie)
     user_cron = _get_setting(db, "user_scrape_cron", "")
     meta_cron = _get_setting(db, "metadata_cron", "0 5 * * 0")
+    imdb_cron = _get_setting(db, "imdb_cron", "")
     return SettingsResponse(
         cron_expression=cron,
         douban_user_id=user_id,
         douban_cookie=cookie,
         user_scrape_cron=user_cron,
         metadata_cron=meta_cron,
+        imdb_cron=imdb_cron,
     )
 
 
@@ -50,6 +52,13 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
         _set_setting(db, "metadata_cron", data.metadata_cron)
         if data.metadata_cron.strip():
             scheduler.reschedule_meta(data.metadata_cron)
+
+    if data.imdb_cron is not None:
+        _set_setting(db, "imdb_cron", data.imdb_cron)
+        if data.imdb_cron.strip():
+            scheduler.reschedule_imdb(data.imdb_cron)
+        else:
+            scheduler.remove_imdb_job()
 
     return get_settings(db)
 

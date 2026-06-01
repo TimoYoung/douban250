@@ -18,15 +18,15 @@ def _get_user_id(db: Session) -> str:
     return settings.douban_user_id
 
 
-def _get_previous_ranks(db: Session, version_id: int) -> dict[str, int]:
-    """Get {douban_id: rank} from the version immediately before the given one (by tag date)."""
+def _get_previous_ranks(db: Session, version_id: int) -> dict[int, int]:
+    """Get {movie_id: rank} from the previous version of the same source."""
     current = db.query(Version).filter(Version.id == version_id).first()
     if not current:
         return {}
 
     prev = (
         db.query(Version)
-        .filter(Version.tag < current.tag)
+        .filter(Version.tag < current.tag, Version.source == current.source)
         .order_by(Version.tag.desc())
         .first()
     )
@@ -34,12 +34,11 @@ def _get_previous_ranks(db: Session, version_id: int) -> dict[str, int]:
         return {}
 
     entries = (
-        db.query(VersionEntry, Movie)
-        .join(Movie, VersionEntry.movie_id == Movie.id)
+        db.query(VersionEntry)
         .filter(VersionEntry.version_id == prev.id)
         .all()
     )
-    return {movie.douban_id: entry.rank for entry, movie in entries}
+    return {e.movie_id: e.rank for e in entries}
 
 
 @router.get("", response_model=PaginatedMovies)
@@ -97,7 +96,7 @@ def list_movies(
 
     items = []
     for entry, movie in entries:
-        old_rank = prev_ranks.get(movie.douban_id)
+        old_rank = prev_ranks.get(movie.id)
         if old_rank is None:
             rank_change = None  # New movie
         else:

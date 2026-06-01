@@ -103,6 +103,11 @@
                 失败：{{ settingsStore.imdbProgress.message }}
               </p>
               <p class="status-line status-muted" v-else>尚未执行</p>
+              <div class="cron-inline">
+                <label>Cron</label>
+                <input v-model="settingsStore.imdbCron" placeholder="留空禁用" class="cron-input" />
+                <button v-if="settingsStore.imdbCron !== savedImdbCron" class="cron-save" @click="onSaveCron('imdb')">保存</button>
+              </div>
               <button class="btn btn-dark w-full" :disabled="isImdbCrawling" @click="onTriggerImdbCrawl">
                 {{ isImdbCrawling ? '爬取中...' : '立即抓取 IMDb' }}
               </button>
@@ -373,6 +378,7 @@ const doulistTag = ref('')
 const savedCron = ref('')
 const savedMetaCron = ref('')
 const savedUserCron = ref('')
+const savedImdbCron = ref('')
 
 // Version list
 const editingId = ref(null)
@@ -446,6 +452,7 @@ function snapshotCrons() {
   savedCron.value = settingsStore.cronExpression
   savedMetaCron.value = settingsStore.metadataCron
   savedUserCron.value = settingsStore.userScrapeCron
+  savedImdbCron.value = settingsStore.imdbCron
 }
 
 onMounted(async () => {

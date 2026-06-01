@@ -38,7 +38,7 @@ def get_version_diff(
     if compare_id is None:
         prev_version = (
             db.query(Version)
-            .filter(Version.tag < version_b.tag)
+            .filter(Version.tag < version_b.tag, Version.source == version_b.source)
             .order_by(Version.tag.desc())
             .first()
         )

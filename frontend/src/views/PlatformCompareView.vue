@@ -4,18 +4,18 @@
 
     <div class="compare-controls">
       <div class="control-group">
-        <label>版本 A：</label>
+        <label>豆瓣版本：</label>
         <select v-model="versionA" @change="loadCompare">
-          <option v-for="v in versionsStore.versions" :key="v.id" :value="v.id">
-            {{ sourceLabels[v.source] || v.source }} · {{ v.tag }}
+          <option v-for="v in doubanVersions" :key="v.id" :value="v.id">
+            {{ v.tag }} ({{ v.movie_count }}部)
           </option>
         </select>
       </div>
       <div class="control-group">
-        <label>版本 B：</label>
+        <label>IMDb 版本：</label>
         <select v-model="versionB" @change="loadCompare">
-          <option v-for="v in versionsStore.versions" :key="v.id" :value="v.id">
-            {{ sourceLabels[v.source] || v.source }} · {{ v.tag }}
+          <option v-for="v in imdbVersions" :key="v.id" :value="v.id">
+            {{ v.tag }} ({{ v.movie_count }}部)
           </option>
         </select>
       </div>
@@ -90,7 +90,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVersionsStore } from '../stores/versions.js'
 import { fetchCompare } from '../api/index.js'
@@ -104,13 +104,17 @@ const versionB = ref(null)
 const data = ref(null)
 const loading = ref(false)
 
+const doubanVersions = computed(() =>
+  versionsStore.versions.filter(v => v.source === 'douban')
+)
+const imdbVersions = computed(() =>
+  versionsStore.versions.filter(v => v.source === 'imdb')
+)
+
 onMounted(async () => {
   await versionsStore.loadVersions()
-  // Default: pick one douban and one imdb version
-  const doubanVersions = versionsStore.versions.filter(v => v.source === 'douban')
-  const imdbVersions = versionsStore.versions.filter(v => v.source === 'imdb')
-  if (doubanVersions.length > 0) versionA.value = doubanVersions[0].id
-  if (imdbVersions.length > 0) versionB.value = imdbVersions[0].id
+  if (doubanVersions.value.length > 0) versionA.value = doubanVersions.value[0].id
+  if (imdbVersions.value.length > 0) versionB.value = imdbVersions.value[0].id
   if (versionA.value && versionB.value) loadCompare()
 })
 

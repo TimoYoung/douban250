@@ -17,6 +17,7 @@ export const useSettingsStore = defineStore('settings', {
     doubanCookie: '',
     userScrapeCron: '',
     metadataCron: '0 5 * * 0',
+    imdbCron: '',
     crawlStatus: null,
     top250Status: null,
     userWatchedStatus: null,
@@ -57,12 +58,14 @@ export const useSettingsStore = defineStore('settings', {
           douban_cookie: this.doubanCookie,
           user_scrape_cron: this.userScrapeCron,
           metadata_cron: this.metadataCron,
+          imdb_cron: this.imdbCron,
         })
         this.cronExpression = data.cron_expression
         this.doubanUserId = data.douban_user_id
         this.doubanCookie = data.douban_cookie || ''
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
+        this.imdbCron = data.imdb_cron || ''
       } finally {
         this.saving = false
       }

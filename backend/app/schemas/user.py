@@ -7,6 +7,7 @@ class SettingsResponse(BeijingBaseModel):
     douban_cookie: str = ""
     user_scrape_cron: str = ""
     metadata_cron: str = ""
+    imdb_cron: str = ""
 
 
 class SettingsUpdate(BeijingBaseModel):
@@ -15,6 +16,7 @@ class SettingsUpdate(BeijingBaseModel):
     douban_cookie: str | None = None
     user_scrape_cron: str | None = None
     metadata_cron: str | None = None
+    imdb_cron: str | None = None
 
 
 class UserWatchedResponse(BeijingBaseModel):

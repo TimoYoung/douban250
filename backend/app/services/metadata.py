@@ -36,6 +36,7 @@ def _needs_metadata_query():
 
     Required fields must be non-empty. detail_fetched is ignored for these
     since they should always be present regardless of source availability.
+    Also includes movies with douban_id but missing imdb_id.
     """
     return (
         or_(Movie.director.is_(None), Movie.director == "") |
@@ -43,7 +44,8 @@ def _needs_metadata_query():
         or_(Movie.country.is_(None), Movie.country == "") |
         or_(Movie.summary.is_(None), Movie.summary == "") |
         or_(Movie.poster_path.is_(None), Movie.poster_path == "") |
-        or_(Movie.douban_url.is_(None), Movie.douban_url == "")
+        or_(Movie.douban_url.is_(None), Movie.douban_url == "") |
+        (Movie.douban_id.isnot(None) & Movie.imdb_id.is_(None))
     )
 
 
@@ -175,6 +177,23 @@ def parse_detail_page(html: str) -> dict:
     if poster:
         info["poster_url"] = poster.get("src", "")
 
+    # Extract IMDb ID from #info section
+    info_div_for_imdb = soup.select_one("#info")
+    if info_div_for_imdb:
+        # Look for IMDb link: <a href="https://www.imdb.com/title/tt.../">...</a>
+        imdb_link = info_div_for_imdb.select_one('a[href*="imdb.com/title/"]')
+        if imdb_link:
+            href = imdb_link.get("href", "")
+            m = re.search(r"(tt\d+)", href)
+            if m:
+                info["imdb_id"] = m.group(1)
+        # Fallback: look for text pattern "IMDb: tt..." or "IMDb链接: tt..."
+        if "imdb_id" not in info:
+            text = info_div_for_imdb.get_text()
+            m = re.search(r"IMDb[:\s：]*(tt\d+)", text, re.IGNORECASE)
+            if m:
+                info["imdb_id"] = m.group(1)
+
     return info
 
 
@@ -242,6 +261,10 @@ def run_backfill(force: bool = False) -> dict:
 
                 if info.get("cast_members") and not movie.cast_members:
                     movie.cast_members = info["cast_members"]
+                    updated = True
+
+                if info.get("imdb_id") and not movie.imdb_id:
+                    movie.imdb_id = info["imdb_id"]
                     updated = True
 
                 if not movie.poster_path and info.get("poster_url"):

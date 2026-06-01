@@ -7,6 +7,7 @@ from app.schemas import BeijingBaseModel
 class VersionInfo(BeijingBaseModel):
     id: int
     tag: str
+    source: str = 'douban'
     crawled_at: datetime
     movie_count: int
 
@@ -16,7 +17,7 @@ class VersionUpdate(BeijingBaseModel):
 
 
 class RankChange(BeijingBaseModel):
-    douban_id: str
+    douban_id: Optional[str] = None
     title: str
     old_rank: int
     new_rank: int
@@ -24,7 +25,7 @@ class RankChange(BeijingBaseModel):
 
 
 class MovieInDiff(BeijingBaseModel):
-    douban_id: str
+    douban_id: Optional[str] = None
     title: str
     rank: int
     rating: Optional[float] = None

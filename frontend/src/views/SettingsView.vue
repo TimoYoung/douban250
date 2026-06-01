@@ -77,6 +77,39 @@
           </div>
         </div>
 
+        <!-- IMDb Top 250 爬取 -->
+        <div class="card card-stretch" :class="{ 'card-active': isImdbCrawling }">
+          <div class="card-pad">
+            <div class="card-head">
+              <div class="card-icon icon-amber">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+              </div>
+              <div>
+                <h3>抓取 IMDb Top 250</h3>
+                <p class="card-subtitle">从 IMDb 抓取 Top 250 排行榜并与豆瓣电影关联</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <p class="status-line" v-if="settingsStore.imdbProgress?.status === 'done'">
+                {{ settingsStore.imdbProgress.message }}
+              </p>
+              <p class="status-line" v-else-if="settingsStore.imdbProgress?.status === 'running'">
+                {{ settingsStore.imdbProgress.message || '爬取中...' }}
+                <span v-if="settingsStore.imdbProgress.total">
+                  ({{ settingsStore.imdbProgress.current }}/{{ settingsStore.imdbProgress.total }})
+                </span>
+              </p>
+              <p class="status-line status-error" v-else-if="settingsStore.imdbProgress?.status === 'error'">
+                失败：{{ settingsStore.imdbProgress.message }}
+              </p>
+              <p class="status-line status-muted" v-else>尚未执行</p>
+              <button class="btn btn-dark w-full" :disabled="isImdbCrawling" @click="onTriggerImdbCrawl">
+                {{ isImdbCrawling ? '爬取中...' : '立即抓取 IMDb' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- 从豆列导入历史榜单 -->
         <div class="card card-stretch" :class="{ 'card-active': isDoulistImporting }">
           <div class="card-pad">
@@ -351,6 +384,7 @@ const versionPageSize = ref(10)
 
 const isCrawling = computed(() => settingsStore.crawlProgress?.active || false)
 const isDoulistImporting = computed(() => settingsStore.doulistImportProgress?.active || false)
+const isImdbCrawling = computed(() => settingsStore.imdbProgress?.status === 'running' || false)
 const hasUserId = computed(() => !!settingsStore.doubanUserId)
 
 const cookieWarning = computed(() => {
@@ -425,12 +459,14 @@ onMounted(async () => {
     settingsStore.loadMetadataStatus(),
     settingsStore.loadCookieCheck(),
     settingsStore.loadDoulistImportProgress(),
+    settingsStore.loadImdbProgress(),
   ])
   snapshotCrons()
   progressInterval = setInterval(async () => {
     await settingsStore.loadCrawlProgress()
     await settingsStore.loadMetadataProgress()
     await settingsStore.loadDoulistImportProgress()
+    await settingsStore.loadImdbProgress()
     if (!settingsStore.crawlProgress?.active && !settingsStore.metadataProgress?.active) {
       await Promise.all([
         settingsStore.loadTop250Status(),
@@ -469,6 +505,7 @@ async function onTriggerCrawl() { await settingsStore.triggerCrawl() }
 async function onTriggerUserScrape() { await settingsStore.triggerUserScrape() }
 async function onTriggerUserScrapeFull() { await settingsStore.triggerUserScrape(true) }
 async function onTriggerMeta() { await settingsStore.triggerMetadataBackfill() }
+async function onTriggerImdbCrawl() { await settingsStore.triggerImdbCrawl() }
 
 async function onDoulistImport() {
   if (!doulistUrl.value || !doulistTag.value) return
@@ -527,6 +564,7 @@ async function onDelete(v) {
 .icon-violet { background: #f5f3ff; color: #8b5cf6; }
 .icon-sky { background: #f0f9ff; color: #0ea5e9; }
 .icon-indigo { background: #eef2ff; color: #6366f1; }
+.icon-amber { background: #fffbeb; color: #d97706; }
 .icon-emerald { background: #ecfdf5; color: #10b981; }
 .card-body { flex: 1; }
 

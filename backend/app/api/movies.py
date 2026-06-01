@@ -106,12 +106,13 @@ def list_movies(
         items.append(MovieListItem(
             id=movie.id,
             douban_id=movie.douban_id,
+            imdb_id=movie.imdb_id,
             title=movie.title,
             year=movie.year,
             rating=movie.rating,
             poster_path=movie.poster_path,
             rank=entry.rank,
-            watched=movie.douban_id in watched_ids,
+            watched=(movie.douban_id or "") in watched_ids,
             director=movie.director,
             genre=movie.genre,
             rank_change=rank_change,
@@ -154,12 +155,93 @@ def get_bubbles(
     return [
         MovieBubble(
             douban_id=movie.douban_id,
+            imdb_id=movie.imdb_id,
             title=movie.title,
             rank=entry.rank,
-            watched=movie.douban_id in watched_ids,
+            watched=(movie.douban_id or "") in watched_ids,
         )
         for entry, movie in entries
     ]
+
+
+@router.get("/compare")
+def compare_platforms(
+    version_a_id: int = Query(..., description="Version A ID"),
+    version_b_id: int = Query(..., description="Version B ID"),
+    db: Session = Depends(get_db),
+):
+    """Compare two versions from different platforms."""
+    from app.schemas.version import MovieInDiff
+
+    entries_a = (
+        db.query(VersionEntry, Movie)
+        .join(Movie, VersionEntry.movie_id == Movie.id)
+        .filter(VersionEntry.version_id == version_a_id)
+        .all()
+    )
+    entries_b = (
+        db.query(VersionEntry, Movie)
+        .join(Movie, VersionEntry.movie_id == Movie.id)
+        .filter(VersionEntry.version_id == version_b_id)
+        .all()
+    )
+
+    map_a = {movie.id: (entry, movie) for entry, movie in entries_a}
+    map_b = {movie.id: (entry, movie) for entry, movie in entries_b}
+
+    ids_a = set(map_a.keys())
+    ids_b = set(map_b.keys())
+
+    common = []
+    for mid in sorted(ids_a & ids_b):
+        ea, ma = map_a[mid]
+        eb, mb = map_b[mid]
+        common.append({
+            "movie_id": mid,
+            "title": ma.title,
+            "douban_id": ma.douban_id,
+            "imdb_id": ma.imdb_id,
+            "poster_path": ma.poster_path,
+            "rank_a": ea.rank,
+            "rank_b": eb.rank,
+            "delta": ea.rank - eb.rank,
+        })
+    common.sort(key=lambda x: abs(x["delta"]), reverse=True)
+
+    only_a = []
+    for mid in sorted(ids_a - ids_b, key=lambda x: map_a[x][0].rank):
+        entry, movie = map_a[mid]
+        only_a.append({
+            "movie_id": mid,
+            "title": movie.title,
+            "douban_id": movie.douban_id,
+            "imdb_id": movie.imdb_id,
+            "poster_path": movie.poster_path,
+            "rank": entry.rank,
+        })
+
+    only_b = []
+    for mid in sorted(ids_b - ids_a, key=lambda x: map_b[x][0].rank):
+        entry, movie = map_b[mid]
+        only_b.append({
+            "movie_id": mid,
+            "title": movie.title,
+            "douban_id": movie.douban_id,
+            "imdb_id": movie.imdb_id,
+            "poster_path": movie.poster_path,
+            "rank": entry.rank,
+        })
+
+    va = db.query(Version).filter(Version.id == version_a_id).first()
+    vb = db.query(Version).filter(Version.id == version_b_id).first()
+
+    return {
+        "version_a": {"id": va.id, "tag": va.tag, "source": va.source} if va else None,
+        "version_b": {"id": vb.id, "tag": vb.tag, "source": vb.source} if vb else None,
+        "common": common,
+        "only_a": only_a,
+        "only_b": only_b,
+    }
 
 
 @router.get("/search", response_model=list[GlobalSearchResult])
@@ -213,12 +295,14 @@ def global_search(
         GlobalSearchResult(
             movie_id=movie.id,
             douban_id=movie.douban_id,
+            imdb_id=movie.imdb_id,
             title=movie.title,
             year=movie.year,
             poster_path=movie.poster_path,
             latest_version_id=version.id,
             latest_version_tag=version.tag,
             rank=entry.rank,
+            source=version.source,
         )
         for movie, entry, version in rows
     ]
@@ -264,6 +348,7 @@ def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
             history.append({
                 "version_id": v.id,
                 "tag": v.tag,
+                "source": v.source,
                 "rank": entry.rank,
                 "rating": entry.rating,
                 "dropped": False,
@@ -272,6 +357,7 @@ def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
             history.append({
                 "version_id": v.id,
                 "tag": v.tag,
+                "source": v.source,
                 "rank": None,
                 "rating": None,
                 "dropped": True,
@@ -284,14 +370,17 @@ def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
             break
 
     # Check watched
-    watched = db.query(WatchedMovie).filter(
-        WatchedMovie.douban_user_id == _get_user_id(db),
-        WatchedMovie.douban_movie_id == movie.douban_id,
-    ).first() is not None
+    watched = False
+    if movie.douban_id:
+        watched = db.query(WatchedMovie).filter(
+            WatchedMovie.douban_user_id == _get_user_id(db),
+            WatchedMovie.douban_movie_id == movie.douban_id,
+        ).first() is not None
 
     return MovieDetail(
         id=movie.id,
         douban_id=movie.douban_id,
+        imdb_id=movie.imdb_id,
         title=movie.title,
         original_title=movie.original_title,
         year=movie.year,
@@ -311,3 +400,50 @@ def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
         current_rank=current_rank,
         watched=watched,
     )
+
+
+@router.post("/merge")
+def merge_movies(
+    keep_id: int = Query(..., description="Movie ID to keep"),
+    merge_id: int = Query(..., description="Movie ID to merge into keep_id"),
+    db: Session = Depends(get_db),
+):
+    """合并两个电影实体：将 merge_id 的所有 VersionEntry 迁移到 keep_id，保留两者的 douban_id/imdb_id。"""
+    from fastapi import HTTPException
+
+    keep = db.query(Movie).filter(Movie.id == keep_id).first()
+    merge = db.query(Movie).filter(Movie.id == merge_id).first()
+    if not keep or not merge:
+        raise HTTPException(status_code=404, detail="Movie not found")
+    if keep_id == merge_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a movie with itself")
+
+    # Transfer imdb_id if keep doesn't have one
+    if merge.imdb_id and not keep.imdb_id:
+        keep.imdb_id = merge.imdb_id
+
+    # Transfer douban_id if keep doesn't have one
+    if merge.douban_id and not keep.douban_id:
+        keep.douban_id = merge.douban_id
+
+    # Migrate VersionEntries: update movie_id from merge_id to keep_id
+    # Handle conflicts (same version_id) by keeping the keep_id entry
+    merge_entries = db.query(VersionEntry).filter(VersionEntry.movie_id == merge_id).all()
+    keep_entry_versions = {
+        e.version_id for e in db.query(VersionEntry).filter(VersionEntry.movie_id == keep_id).all()
+    }
+
+    migrated = 0
+    for entry in merge_entries:
+        if entry.version_id in keep_entry_versions:
+            # Conflict: keep_id already has an entry for this version, delete merge's
+            db.delete(entry)
+        else:
+            entry.movie_id = keep_id
+            migrated += 1
+
+    # Delete the merged movie
+    db.delete(merge)
+    db.commit()
+
+    return {"message": f"Merged movie {merge_id} into {keep_id}", "migrated_entries": migrated}

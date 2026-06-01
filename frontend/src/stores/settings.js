@@ -6,6 +6,7 @@ import {
   fetchTop250Status, fetchUserWatchedStatus,
   fetchMetadataProgress, fetchMetadataStatus, fetchCookieCheck,
   triggerDoulistImport, fetchDoulistImportProgress,
+  triggerImdbCrawl, fetchImdbProgress,
   fetchVersions, deleteVersion, updateVersion,
 } from '../api/index.js'
 
@@ -25,6 +26,7 @@ export const useSettingsStore = defineStore('settings', {
     cookieCheck: null,
     checkingCookie: false,
     doulistImportProgress: null,
+    imdbProgress: null,
     versions: [],
     loading: false,
     saving: false,
@@ -136,6 +138,17 @@ export const useSettingsStore = defineStore('settings', {
     async loadDoulistImportProgress() {
       const { data } = await fetchDoulistImportProgress()
       this.doulistImportProgress = data
+    },
+
+    // IMDb
+    async triggerImdbCrawl() {
+      await triggerImdbCrawl()
+      await this.loadImdbProgress()
+    },
+
+    async loadImdbProgress() {
+      const { data } = await fetchImdbProgress()
+      this.imdbProgress = data
     },
 
     // Versions

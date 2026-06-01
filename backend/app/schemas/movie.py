@@ -5,7 +5,8 @@ from app.schemas import BeijingBaseModel
 
 
 class MovieBase(BeijingBaseModel):
-    douban_id: str
+    douban_id: Optional[str] = None
+    imdb_id: Optional[str] = None
     title: str
     original_title: Optional[str] = None
     year: Optional[int] = None
@@ -23,7 +24,8 @@ class MovieBase(BeijingBaseModel):
 
 class MovieListItem(BeijingBaseModel):
     id: int
-    douban_id: str
+    douban_id: Optional[str] = None
+    imdb_id: Optional[str] = None
     title: str
     year: Optional[int] = None
     rating: Optional[float] = None
@@ -45,7 +47,8 @@ class MovieDetail(MovieBase):
 
 
 class MovieBubble(BeijingBaseModel):
-    douban_id: str
+    douban_id: Optional[str] = None
+    imdb_id: Optional[str] = None
     title: str
     rank: int
     watched: bool = False
@@ -61,10 +64,12 @@ class PaginatedMovies(BeijingBaseModel):
 
 class GlobalSearchResult(BeijingBaseModel):
     movie_id: int
-    douban_id: str
+    douban_id: Optional[str] = None
+    imdb_id: Optional[str] = None
     title: str
     year: Optional[int] = None
     poster_path: Optional[str] = None
     latest_version_id: int
     latest_version_tag: str
     rank: int
+    source: str = 'douban'

@@ -3,10 +3,11 @@
     <nav class="nav-bar">
       <router-link to="/movies" class="nav-brand">
         <div class="brand-mark">T</div>
-        <span>豆瓣 Top 250</span>
+        <span>Top 250 影史追踪</span>
       </router-link>
       <div class="nav-links">
         <router-link to="/movies">电影列表</router-link>
+        <router-link to="/compare">平台对比</router-link>
         <router-link to="/versions">版本对比</router-link>
         <router-link to="/settings">控制台</router-link>
       </div>

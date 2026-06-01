@@ -11,9 +11,19 @@ const routes = [
     component: () => import('../views/MovieListView.vue'),
   },
   {
+    path: '/movies/id/:id',
+    name: 'MovieDetailById',
+    component: () => import('../views/MovieDetailView.vue'),
+  },
+  {
     path: '/movies/:id',
     name: 'MovieDetail',
     component: () => import('../views/MovieDetailView.vue'),
+  },
+  {
+    path: '/compare',
+    name: 'PlatformCompare',
+    component: () => import('../views/PlatformCompareView.vue'),
   },
   {
     path: '/versions',

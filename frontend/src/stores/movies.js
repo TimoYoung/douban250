@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { fetchMovies, fetchBubbles, fetchMovie, searchMoviesGlobal } from '../api/index.js'
+import { fetchMovies, fetchBubbles, fetchMovie, fetchMovieById, searchMoviesGlobal } from '../api/index.js'
 
 export const useMoviesStore = defineStore('movies', {
   state: () => ({
@@ -52,6 +52,16 @@ export const useMoviesStore = defineStore('movies', {
       this.loading = true
       try {
         const { data } = await fetchMovie(id)
+        this.currentMovie = data
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async loadMovieById(id) {
+      this.loading = true
+      try {
+        const { data } = await fetchMovieById(id)
         this.currentMovie = data
       } finally {
         this.loading = false

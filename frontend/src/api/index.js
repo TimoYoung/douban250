@@ -18,6 +18,10 @@ export function fetchMovie(doubanId) {
   return api.get(`/movies/by-douban/${doubanId}`)
 }
 
+export function fetchMovieById(movieId) {
+  return api.get(`/movies/${movieId}`)
+}
+
 export function searchMoviesGlobal(q, limit = 20) {
   return api.get('/movies/search', { params: { q, limit } })
 }
@@ -108,6 +112,19 @@ export function triggerDoulistImport(url, tag) {
 
 export function fetchDoulistImportProgress() {
   return api.get('/crawl/doulist/progress')
+}
+
+// IMDb
+export function triggerImdbCrawl() {
+  return api.post('/crawl/imdb')
+}
+
+export function fetchImdbProgress() {
+  return api.get('/crawl/imdb/progress')
+}
+
+export function fetchCompare(versionAId, versionBId) {
+  return api.get('/movies/compare', { params: { version_a_id: versionAId, version_b_id: versionBId } })
 }
 
 export default api

@@ -2,9 +2,12 @@
   <div class="movie-list-view">
     <div class="toolbar">
       <VersionSelector
-        :versions="versionsStore.versions"
+        :versions="versionsStore.filteredVersions"
         :modelValue="versionsStore.currentVersionId"
+        :sourceFilter="versionsStore.sourceFilter"
+        :sources="versionsStore.availableSources"
         @update:modelValue="onVersionChange"
+        @update:sourceFilter="onSourceChange"
       />
       <div class="toolbar-right">
         <div class="search-wrapper">
@@ -126,6 +129,12 @@ onMounted(async () => {
 
 function onVersionChange(id) {
   versionsStore.currentVersionId = id
+  store.page = 1
+  loadData()
+}
+
+function onSourceChange(source) {
+  versionsStore.setSourceFilter(source)
   store.page = 1
   loadData()
 }

@@ -186,3 +186,34 @@ def _run_doulist_import(url: str, tag: str):
         import_doulist(url, tag)
     except Exception:
         pass
+
+
+# --- IMDb Top 250 ---
+
+@router.post("/imdb", response_model=CrawlTriggerResponse)
+def trigger_imdb_crawl():
+    from app.services.imdb_crawler import get_imdb_progress
+    progress = get_imdb_progress()
+    if progress["status"] == "running":
+        raise HTTPException(status_code=409, detail="An IMDb crawl is already running")
+    if crawl_progress["active"]:
+        raise HTTPException(status_code=409, detail="A Douban crawl is already running")
+
+    thread = threading.Thread(target=_run_imdb_crawl, daemon=True)
+    thread.start()
+    return CrawlTriggerResponse(message="IMDb Top 250 crawl triggered", triggered=True)
+
+
+@router.get("/imdb/progress")
+def get_imdb_crawl_progress():
+    from app.services.imdb_crawler import get_imdb_progress
+    return get_imdb_progress()
+
+
+def _run_imdb_crawl():
+    from app.services.imdb_crawler import crawl_imdb_top250
+    from app.database import SessionLocal
+    try:
+        crawl_imdb_top250(SessionLocal)
+    except Exception:
+        pass

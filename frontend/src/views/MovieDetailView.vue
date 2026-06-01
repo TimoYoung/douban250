@@ -26,7 +26,10 @@
             <div v-if="movie.current_rank"><strong>当前排名：</strong>#{{ movie.current_rank }}</div>
             <div v-if="movie.watched" class="watched-tag">✓ 已看过</div>
             <div v-if="movie.douban_url">
-              <a :href="movie.douban_url" target="_blank" rel="noopener" class="douban-link">在豆瓣中打开 →</a>
+              <a :href="movie.douban_url" target="_blank" rel="noopener" class="external-link douban-link">在豆瓣中打开 →</a>
+            </div>
+            <div v-if="movie.imdb_id">
+              <a :href="`https://www.imdb.com/title/${movie.imdb_id}/`" target="_blank" rel="noopener" class="external-link imdb-link">在 IMDb 中打开 →</a>
             </div>
           </div>
 
@@ -65,7 +68,11 @@ const summaryParagraphs = computed(() => {
 })
 
 onMounted(() => {
-  store.loadMovie(route.params.id)
+  if (route.name === 'MovieDetailById') {
+    store.loadMovieById(route.params.id)
+  } else {
+    store.loadMovie(route.params.id)
+  }
 })
 </script>
 
@@ -151,12 +158,19 @@ onMounted(() => {
 
 .douban-link {
   color: #6366f1;
+}
+
+.imdb-link {
+  color: #e6b800;
+}
+
+.external-link {
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
 }
 
-.douban-link:hover {
+.external-link:hover {
   text-decoration: underline;
 }
 

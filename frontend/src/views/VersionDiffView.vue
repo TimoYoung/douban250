@@ -4,13 +4,16 @@
 
     <div class="diff-controls">
       <VersionSelector
-        :versions="versionsStore.versions"
+        :versions="versionsStore.filteredVersions"
         v-model="selectedVersion"
+        :sourceFilter="versionsStore.sourceFilter"
+        :sources="versionsStore.availableSources"
         label="当前版本："
         @update:modelValue="loadDiff"
+        @update:sourceFilter="onSourceChange"
       />
       <VersionSelector
-        :versions="versionsStore.versions"
+        :versions="versionsStore.filteredVersions"
         v-model="compareVersion"
         label="对比版本："
         defaultOption="上一版本"
@@ -37,12 +40,23 @@ const compareVersion = ref('')
 
 onMounted(async () => {
   await versionsStore.loadVersions()
-  if (versionsStore.versions.length >= 2) {
-    selectedVersion.value = versionsStore.versions[0].id
+  const filtered = versionsStore.filteredVersions
+  if (filtered.length >= 2) {
+    selectedVersion.value = filtered[0].id
     compareVersion.value = ''
     loadDiff()
   }
 })
+
+function onSourceChange(source) {
+  versionsStore.setSourceFilter(source)
+  const filtered = versionsStore.filteredVersions
+  if (filtered.length >= 2) {
+    selectedVersion.value = filtered[0].id
+    compareVersion.value = ''
+    loadDiff()
+  }
+}
 
 function loadDiff() {
   if (selectedVersion.value) {

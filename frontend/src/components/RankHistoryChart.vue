@@ -13,6 +13,15 @@ const props = defineProps({
 const chartRef = ref(null)
 let chart = null
 
+const SOURCE_COLORS = {
+  douban: '#1890ff',
+  imdb: '#f5c518',
+}
+const SOURCE_LABELS = {
+  douban: '豆瓣',
+  imdb: 'IMDb',
+}
+
 function formatDate(ts) {
   const d = new Date(ts)
   const y = d.getFullYear()
@@ -27,41 +36,90 @@ function initChart() {
   if (chart) chart.dispose()
   chart = echarts.init(chartRef.value)
 
-  const len = props.history.length
-  const isDense = len > 15
-  const veryDense = len > 30
+  const sources = [...new Set(props.history.map(h => h.source || 'douban'))]
+  const isDense = props.history.length > 15
+  const veryDense = props.history.length > 30
 
-  const rankData = []
-  const droppedData = []
+  const series = []
 
-  for (const h of props.history) {
-    const ts = new Date(h.tag).getTime()
-    if (h.dropped) {
-      rankData.push([ts, null])
-      droppedData.push([ts, 251])
-    } else {
-      rankData.push([ts, h.rank])
+  for (const source of sources) {
+    const items = props.history.filter(h => (h.source || 'douban') === source)
+    const rankData = []
+    const droppedData = []
+
+    for (const h of items) {
+      const ts = new Date(h.tag).getTime()
+      if (h.dropped) {
+        rankData.push([ts, null])
+        droppedData.push([ts, 251])
+      } else {
+        rankData.push([ts, h.rank])
+      }
+    }
+
+    const color = SOURCE_COLORS[source] || '#999'
+    const label = SOURCE_LABELS[source] || source
+
+    series.push({
+      name: label,
+      type: 'line',
+      data: rankData,
+      connectNulls: false,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: veryDense ? 3 : isDense ? 4 : 8,
+      lineStyle: { width: 2, color },
+      itemStyle: { color },
+      label: {
+        show: !isDense && sources.length === 1,
+        position: 'top',
+        formatter: (p) => p.value?.[1] != null ? `#${p.value[1]}` : '',
+        fontSize: 11,
+        color: '#333',
+      },
+    })
+
+    if (droppedData.length > 0) {
+      series.push({
+        name: `${label} 脱榜`,
+        type: 'scatter',
+        data: droppedData,
+        symbol: 'diamond',
+        symbolSize: veryDense ? 6 : isDense ? 8 : 12,
+        itemStyle: { color: '#ff4d4f' },
+        label: {
+          show: !isDense && sources.length === 1,
+          position: 'top',
+          formatter: '未上榜',
+          fontSize: 11,
+          color: '#ff4d4f',
+          fontWeight: 'bold',
+        },
+      })
     }
   }
 
-  // 默认显示最后 12 个数据点
-  const allTs = props.history.map(h => new Date(h.tag).getTime())
-  const startPercent = isDense ? Math.max(0, (1 - 12 / len) * 100) : 0
+  const startPercent = isDense ? Math.max(0, (1 - 12 / props.history.length) * 100) : 0
 
   chart.setOption({
     title: { text: '排名历史', left: 'center' },
+    legend: {
+      show: sources.length > 1,
+      top: 30,
+      data: sources.map(s => SOURCE_LABELS[s] || s),
+    },
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
-        const p = params.find(p => p.value != null) || params[0]
+        if (!params.length) return ''
+        const p = params.find(p => p.value != null && p.value[1] != null) || params[0]
         if (!p) return ''
         const date = formatDate(p.value[0])
-        // 查找对应的 history 项
-        const item = props.history.find(h => new Date(h.tag).getTime() === p.value[0])
-        if (item?.dropped) {
-          return `${date}<br/>未上榜`
+        const seriesName = p.seriesName || ''
+        if (p.value[1] === 251) {
+          return `${date} (${seriesName})<br/>未上榜`
         }
-        return `${date}<br/>排名: #${p.value[1]}`
+        return `${date} (${seriesName})<br/>排名: #${p.value[1]}`
       },
     },
     dataZoom: [
@@ -80,7 +138,7 @@ function initChart() {
         type: 'inside',
         start: startPercent,
         end: 100,
-        minSpan: Math.max(10, Math.min(50, (12 / len) * 100)),
+        minSpan: Math.max(10, Math.min(50, (12 / props.history.length) * 100)),
         maxSpan: 100,
         zoomOnMouseWheel: false,
       },
@@ -102,43 +160,8 @@ function initChart() {
         formatter: (v) => v <= 250 ? `#${v}` : '',
       },
     },
-    series: [
-      {
-        name: '排名',
-        type: 'line',
-        data: rankData,
-        connectNulls: false,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: veryDense ? 3 : isDense ? 4 : 8,
-        lineStyle: { width: 2, color: '#1890ff' },
-        itemStyle: { color: '#1890ff' },
-        label: {
-          show: !isDense,
-          position: 'top',
-          formatter: (p) => p.value?.[1] != null ? `#${p.value[1]}` : '',
-          fontSize: 11,
-          color: '#333',
-        },
-      },
-      {
-        name: '掉出榜单',
-        type: 'scatter',
-        data: droppedData,
-        symbol: 'diamond',
-        symbolSize: veryDense ? 6 : isDense ? 8 : 12,
-        itemStyle: { color: '#ff4d4f' },
-        label: {
-          show: !isDense,
-          position: 'top',
-          formatter: '未上榜',
-          fontSize: 11,
-          color: '#ff4d4f',
-          fontWeight: 'bold',
-        },
-      },
-    ],
-    grid: { left: 60, right: 30, bottom: isDense ? 80 : 60, top: 50 },
+    series,
+    grid: { left: 60, right: 30, bottom: isDense ? 80 : 60, top: sources.length > 1 ? 60 : 50 },
   })
 }
 

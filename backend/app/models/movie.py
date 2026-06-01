@@ -9,7 +9,8 @@ class Movie(Base):
     __tablename__ = "movies"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    douban_id = Column(String(20), unique=True, nullable=False, index=True)
+    douban_id = Column(String(20), unique=True, nullable=True, index=True)
+    imdb_id = Column(String(20), unique=True, nullable=True, index=True)
     title = Column(String(500), nullable=False)
     original_title = Column(String(500))
     year = Column(Integer)
@@ -35,6 +36,7 @@ class Version(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     tag = Column(String(20), unique=True, nullable=False)
+    source = Column(String(20), nullable=False, default='douban')
     crawled_at = Column(DateTime(timezone=True), nullable=False)
     movie_count = Column(Integer, nullable=False, default=250)
 

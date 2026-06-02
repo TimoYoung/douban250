@@ -371,6 +371,7 @@ def crawl_imdb_top250(db_factory) -> dict:
 
         try:
             matched_movies = []  # (rank, movie_id, rating)
+            seen_movie_ids = set()  # deduplicate movie_id
             _update_progress(phase="matching")
 
             for i, mdata in enumerate(movies_data):
@@ -441,6 +442,12 @@ def crawl_imdb_top250(db_factory) -> dict:
                         movie.title = cn
                         logger.info(
                             f"Title fixed: {movie.original_title} -> {cn}")
+
+                # 去重：同一部电影可能被多部 IMDb 电影匹配到
+                if movie.id in seen_movie_ids:
+                    logger.info(f"Skipping duplicate: {imdb_title} -> movie_id={movie.id}")
+                    continue
+                seen_movie_ids.add(movie.id)
 
                 matched_movies.append(
                     (rank, movie.id, mdata.get("rating")))

@@ -36,7 +36,8 @@ def _needs_metadata_query():
 
     Required fields must be non-empty. detail_fetched is ignored for these
     since they should always be present regardless of source availability.
-    Also includes movies with douban_id but missing imdb_id.
+    Also includes movies with valid douban_id but missing imdb_id
+    (only if detail_fetched is False, to avoid re-fetching known-complete movies).
     """
     return (
         or_(Movie.director.is_(None), Movie.director == "") |
@@ -45,7 +46,7 @@ def _needs_metadata_query():
         or_(Movie.summary.is_(None), Movie.summary == "") |
         or_(Movie.poster_path.is_(None), Movie.poster_path == "") |
         or_(Movie.douban_url.is_(None), Movie.douban_url == "") |
-        (Movie.douban_id.isnot(None) & Movie.imdb_id.is_(None))
+        (Movie.douban_id.isnot(None) & Movie.imdb_id.is_(None) & Movie.detail_fetched.isnot(True))
     )
 
 
@@ -249,6 +250,12 @@ def run_backfill(force: bool = False) -> dict:
             logger.info(f"[{idx + 1}/{len(to_fetch)}] {movie.title} ({movie.douban_id})")
 
             try:
+                # Skip movies with non-numeric douban_id (e.g. placeholders)
+                if movie.douban_id and not movie.douban_id.isdigit():
+                    logger.info(f"  Skipping (non-numeric douban_id: {movie.douban_id})")
+                    meta_progress["failed"] += 1
+                    continue
+
                 url = f"https://movie.douban.com/subject/{movie.douban_id}/"
                 html = fetch_page(url)
                 info = parse_detail_page(html)

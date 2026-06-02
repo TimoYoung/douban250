@@ -7,8 +7,7 @@
       </router-link>
       <div class="nav-links">
         <router-link to="/movies">电影列表</router-link>
-        <router-link to="/compare">平台对比</router-link>
-        <router-link to="/versions">版本对比</router-link>
+        <router-link to="/compare">版本对比</router-link>
         <router-link to="/settings">控制台</router-link>
       </div>
     </nav>

@@ -163,86 +163,6 @@ def get_bubbles(
     ]
 
 
-@router.get("/compare")
-def compare_platforms(
-    version_a_id: int = Query(..., description="Version A ID"),
-    version_b_id: int = Query(..., description="Version B ID"),
-    db: Session = Depends(get_db),
-):
-    """Compare two versions from different platforms."""
-    from app.schemas.version import MovieInDiff
-
-    entries_a = (
-        db.query(VersionEntry, Movie)
-        .join(Movie, VersionEntry.movie_id == Movie.id)
-        .filter(VersionEntry.version_id == version_a_id)
-        .all()
-    )
-    entries_b = (
-        db.query(VersionEntry, Movie)
-        .join(Movie, VersionEntry.movie_id == Movie.id)
-        .filter(VersionEntry.version_id == version_b_id)
-        .all()
-    )
-
-    map_a = {movie.id: (entry, movie) for entry, movie in entries_a}
-    map_b = {movie.id: (entry, movie) for entry, movie in entries_b}
-
-    ids_a = set(map_a.keys())
-    ids_b = set(map_b.keys())
-
-    common = []
-    for mid in sorted(ids_a & ids_b):
-        ea, ma = map_a[mid]
-        eb, mb = map_b[mid]
-        common.append({
-            "movie_id": mid,
-            "title": ma.title,
-            "douban_id": ma.douban_id,
-            "imdb_id": ma.imdb_id,
-            "poster_path": ma.poster_path,
-            "rank_a": ea.rank,
-            "rank_b": eb.rank,
-            "delta": ea.rank - eb.rank,
-        })
-    common.sort(key=lambda x: abs(x["delta"]), reverse=True)
-
-    only_a = []
-    for mid in sorted(ids_a - ids_b, key=lambda x: map_a[x][0].rank):
-        entry, movie = map_a[mid]
-        only_a.append({
-            "movie_id": mid,
-            "title": movie.title,
-            "douban_id": movie.douban_id,
-            "imdb_id": movie.imdb_id,
-            "poster_path": movie.poster_path,
-            "rank": entry.rank,
-        })
-
-    only_b = []
-    for mid in sorted(ids_b - ids_a, key=lambda x: map_b[x][0].rank):
-        entry, movie = map_b[mid]
-        only_b.append({
-            "movie_id": mid,
-            "title": movie.title,
-            "douban_id": movie.douban_id,
-            "imdb_id": movie.imdb_id,
-            "poster_path": movie.poster_path,
-            "rank": entry.rank,
-        })
-
-    va = db.query(Version).filter(Version.id == version_a_id).first()
-    vb = db.query(Version).filter(Version.id == version_b_id).first()
-
-    return {
-        "version_a": {"id": va.id, "tag": va.tag, "source": va.source} if va else None,
-        "version_b": {"id": vb.id, "tag": vb.tag, "source": vb.source} if vb else None,
-        "common": common,
-        "only_a": only_a,
-        "only_b": only_b,
-    }
-
-
 @router.get("/search", response_model=list[GlobalSearchResult])
 def global_search(
     q: str = Query("", min_length=0),
@@ -252,14 +172,15 @@ def global_search(
     if not q.strip():
         return []
 
-    # Subquery: for each movie, find the latest version that contains it
+    # Subquery: for each movie+source, find the latest version that contains it
     latest = (
         db.query(
             VersionEntry.movie_id,
+            Version.source,
             func.max(Version.tag).label("latest_tag"),
         )
         .join(Version, VersionEntry.version_id == Version.id)
-        .group_by(VersionEntry.movie_id)
+        .group_by(VersionEntry.movie_id, Version.source)
         .subquery()
     )
 
@@ -269,15 +190,14 @@ def global_search(
         .join(
             VersionEntry,
             (VersionEntry.movie_id == Movie.id)
-            & (
-                VersionEntry.version_id
-                == db.query(Version.id)
-                .filter(Version.tag == latest.c.latest_tag)
-                .correlate(latest)
-                .scalar_subquery()
-            ),
+            & (VersionEntry.version_id == Version.id),
         )
-        .join(Version, VersionEntry.version_id == Version.id)
+        .join(
+            Version,
+            (Version.id == VersionEntry.version_id)
+            & (Version.tag == latest.c.latest_tag)
+            & (Version.source == latest.c.source),
+        )
         .filter(
             or_(
                 Movie.title.ilike(f"%{q}%"),
@@ -362,11 +282,13 @@ def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
                 "dropped": True,
             })
 
-    current_rank = None
+    # 每个平台取最新排名
+    current_ranks = {}
     for h in reversed(history):
         if h["rank"] is not None:
-            current_rank = h["rank"]
-            break
+            src = h["source"] or "douban"
+            if src not in current_ranks:
+                current_ranks[src] = {"source": src, "tag": h["tag"], "rank": h["rank"]}
 
     # Check watched
     watched = False
@@ -396,7 +318,7 @@ def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
         created_at=movie.created_at,
         updated_at=movie.updated_at,
         rank_history=history,
-        current_rank=current_rank,
+        current_ranks=list(current_ranks.values()),
         watched=watched,
     )
 

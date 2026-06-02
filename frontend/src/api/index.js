@@ -31,10 +31,12 @@ export function fetchVersions() {
   return api.get('/versions')
 }
 
-export function fetchVersionDiff(versionId, compareId, topN = 10) {
-  return api.get(`/versions/${versionId}/diff`, {
-    params: { compare_id: compareId, top_n: topN },
-  })
+export function fetchCompare(versionAId, versionBId, topN = 10) {
+  return api.get('/versions/compare', { params: { version_a_id: versionAId, version_b_id: versionBId, top_n: topN } })
+}
+
+export function fetchDeletePreview(id) {
+  return api.get(`/versions/${id}/delete-preview`)
 }
 
 export function deleteVersion(id) {
@@ -123,8 +125,17 @@ export function fetchImdbProgress() {
   return api.get('/crawl/imdb/progress')
 }
 
-export function fetchCompare(versionAId, versionBId) {
-  return api.get('/movies/compare', { params: { version_a_id: versionAId, version_b_id: versionBId } })
+// Pending matches
+export function fetchPendingMatches() {
+  return api.get('/pending-matches')
+}
+
+export function resolvePendingMatch(imdbId, data) {
+  return api.post('/pending-matches/resolve', { imdb_id: imdbId, ...data })
+}
+
+export function fetchPendingMatchCount() {
+  return api.get('/pending-matches')
 }
 
 export default api

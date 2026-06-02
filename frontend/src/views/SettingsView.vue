@@ -18,7 +18,7 @@
 
       <!-- Create Version: two side-by-side cards -->
       <div class="grid-2">
-        <!-- 抓取实时榜单 -->
+        <!-- 抓取豆瓣 Top 250 -->
         <div class="card card-stretch" :class="{ 'card-active': isCrawling }">
           <div class="card-pad">
             <div class="card-head">
@@ -26,7 +26,7 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
               </div>
               <div>
-                <h3>抓取实时榜单</h3>
+                <h3>抓取豆瓣 Top 250</h3>
                 <p class="card-subtitle">从豆瓣抓取最新的 Top 250 排行榜数据</p>
               </div>
             </div>
@@ -77,7 +77,7 @@
           </div>
         </div>
 
-        <!-- IMDb Top 250 爬取 -->
+        <!-- 抓取 IMDb Top 250 -->
         <div class="card card-stretch" :class="{ 'card-active': isImdbCrawling }">
           <div class="card-pad">
             <div class="card-head">
@@ -91,31 +91,47 @@
             </div>
             <div class="card-body">
               <p class="status-line" v-if="settingsStore.imdbProgress?.status === 'done'">
-                {{ settingsStore.imdbProgress.message }}
+                {{ imdbDoneMessage }}
               </p>
-              <p class="status-line" v-else-if="settingsStore.imdbProgress?.status === 'running'">
-                {{ settingsStore.imdbProgress.message || '爬取中...' }}
-                <span v-if="settingsStore.imdbProgress.total">
-                  ({{ settingsStore.imdbProgress.current }}/{{ settingsStore.imdbProgress.total }})
-                </span>
-              </p>
+              <div v-if="settingsStore.imdbProgress?.status === 'done'" class="tag-row">
+                <span class="tag tag-green" v-if="settingsStore.imdbProgress.new_version">新版本</span>
+                <span class="tag" v-else-if="settingsStore.imdbProgress.new_version === false">未变化</span>
+                <span v-if="settingsStore.imdbProgress.matched" class="tag-meta">{{ settingsStore.imdbProgress.matched }} 部</span>
+                <span class="tag tag-amber" v-if="settingsStore.pendingMatchCount > 0">{{ settingsStore.pendingMatchCount }} 部待确认</span>
+              </div>
               <p class="status-line status-error" v-else-if="settingsStore.imdbProgress?.status === 'error'">
                 失败：{{ settingsStore.imdbProgress.message }}
               </p>
-              <p class="status-line status-muted" v-else>尚未执行</p>
+              <p class="status-line status-muted" v-else-if="!settingsStore.imdbProgress || settingsStore.imdbProgress.status === 'idle'">尚未执行</p>
+              <!-- IMDb Crawl Progress -->
+              <div v-if="settingsStore.imdbProgress?.status === 'running'" class="crawl-progress">
+                <p class="progress-msg">{{ settingsStore.imdbProgress.message || '爬取中...' }}</p>
+                <div v-if="settingsStore.imdbProgress.total > 0" class="progress-label">
+                  <span>{{ settingsStore.imdbProgress.phase === 'matching' ? '匹配进度' : '进度' }}</span>
+                  <span class="progress-pct accent">{{ Math.round(settingsStore.imdbProgress.current / settingsStore.imdbProgress.total * 100) }}%</span>
+                </div>
+                <div v-if="settingsStore.imdbProgress.total > 0" class="progress-bar-track">
+                  <div class="progress-bar-fill gradient-amber" :style="{ width: (settingsStore.imdbProgress.current / settingsStore.imdbProgress.total * 100) + '%' }"></div>
+                </div>
+                <p class="progress-sub">
+                  <span v-if="settingsStore.imdbProgress.current">{{ settingsStore.imdbProgress.current }}/{{ settingsStore.imdbProgress.total }}</span>
+                  <span v-if="settingsStore.imdbProgress.matched"> · 匹配 {{ settingsStore.imdbProgress.matched }}（新建 {{ settingsStore.imdbProgress.created || 0 }}）</span>
+                  <span v-if="settingsStore.imdbProgress.pending"> · 待确认 {{ settingsStore.imdbProgress.pending }}</span>
+                </p>
+              </div>
               <div class="cron-inline">
                 <label>Cron</label>
                 <input v-model="settingsStore.imdbCron" placeholder="留空禁用" class="cron-input" />
                 <button v-if="settingsStore.imdbCron !== savedImdbCron" class="cron-save" @click="onSaveCron('imdb')">保存</button>
               </div>
-              <button class="btn btn-dark w-full" :disabled="isImdbCrawling" @click="onTriggerImdbCrawl">
-                {{ isImdbCrawling ? '爬取中...' : '立即抓取 IMDb' }}
-              </button>
             </div>
+            <button class="btn btn-dark w-full" :disabled="isImdbCrawling" @click="onTriggerImdbCrawl">
+              {{ isImdbCrawling ? '抓取中...' : '立即抓取' }}
+            </button>
           </div>
         </div>
 
-        <!-- 从豆列导入历史榜单 -->
+        <!-- 从豆列导入豆瓣历史榜单 -->
         <div class="card card-stretch" :class="{ 'card-active': isDoulistImporting }">
           <div class="card-pad">
             <div class="card-head">
@@ -123,51 +139,56 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               </div>
               <div>
-                <h3>从豆列导入历史榜单</h3>
-                <p class="card-subtitle">从 Doulist 链接导入指定日期的排行榜数据</p>
+                <h3>从豆列导入豆瓣历史榜单</h3>
+                <p class="card-subtitle">从 Doulist 链接导入指定日期的豆瓣排行榜数据</p>
               </div>
             </div>
-            <div class="doulist-hint">
-              豆列必须是用户保存的、按顺序排列的历史豆瓣 Top 250 列表。例如：<code>https://www.douban.com/doulist/918989/</code>
+            <div class="card-body">
+              <div class="doulist-hint">
+                豆列必须是用户保存的、按顺序排列的历史豆瓣 Top 250 列表。例如：<code>https://www.douban.com/doulist/918989/</code>
+              </div>
+              <div class="doulist-fields">
+                <div class="field-sm">
+                  <label>Doulist 链接</label>
+                  <input v-model="doulistUrl" placeholder="https://www.douban.com/doulist/918989/" :disabled="isDoulistImporting" />
+                </div>
+                <div class="field-sm field-sm-date">
+                  <label>版本日期</label>
+                  <input v-model="doulistTag" type="date" :disabled="isDoulistImporting" />
+                </div>
+              </div>
+              <div v-if="settingsStore.doulistImportProgress?.active" class="import-progress">
+                <p class="progress-msg">{{ settingsStore.doulistImportProgress.message }}</p>
+                <div class="progress-label">
+                  <span>页面进度</span>
+                  <span class="progress-pct accent">{{ doulistPercent }}%</span>
+                </div>
+                <div class="progress-bar-track">
+                  <div class="progress-bar-fill gradient-indigo" :style="{ width: doulistPercent + '%' }"></div>
+                </div>
+                <div class="stat-row">
+                  <span>第 {{ settingsStore.doulistImportProgress.page_current }}/{{ settingsStore.doulistImportProgress.page_total }} 页</span>
+                  <span class="tag">{{ settingsStore.doulistImportProgress.movies_found }} 部</span>
+                </div>
+              </div>
+              <p v-else-if="settingsStore.doulistImportProgress?.success" class="result-msg result-ok">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                {{ settingsStore.doulistImportProgress.message }}
+              </p>
+              <p v-else-if="settingsStore.doulistImportProgress?.error" class="result-msg result-err">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                {{ settingsStore.doulistImportProgress.message }}
+              </p>
             </div>
-            <div class="doulist-fields">
-              <div class="field-sm">
-                <label>Doulist 链接</label>
-                <input v-model="doulistUrl" placeholder="https://www.douban.com/doulist/918989/" :disabled="isDoulistImporting" />
-              </div>
-              <div class="field-sm field-sm-date">
-                <label>版本日期</label>
-                <input v-model="doulistTag" type="date" :disabled="isDoulistImporting" />
-              </div>
-            </div>
-            <div v-if="settingsStore.doulistImportProgress?.active" class="import-progress">
-              <p class="progress-msg">{{ settingsStore.doulistImportProgress.message }}</p>
-              <div class="progress-label">
-                <span>页面进度</span>
-                <span class="progress-pct accent">{{ doulistPercent }}%</span>
-              </div>
-              <div class="progress-bar-track">
-                <div class="progress-bar-fill gradient-indigo" :style="{ width: doulistPercent + '%' }"></div>
-              </div>
-              <div class="stat-row">
-                <span>第 {{ settingsStore.doulistImportProgress.page_current }}/{{ settingsStore.doulistImportProgress.page_total }} 页</span>
-                <span class="tag">{{ settingsStore.doulistImportProgress.movies_found }} 部</span>
-              </div>
-            </div>
-            <p v-else-if="settingsStore.doulistImportProgress?.success" class="result-msg result-ok">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              {{ settingsStore.doulistImportProgress.message }}
-            </p>
-            <p v-else-if="settingsStore.doulistImportProgress?.error" class="result-msg result-err">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-              {{ settingsStore.doulistImportProgress.message }}
-            </p>
             <button class="btn btn-dark w-full" :disabled="isDoulistImporting || !doulistUrl || !doulistTag" @click="onDoulistImport">
               {{ isDoulistImporting ? '导入中...' : '导入' }}
             </button>
           </div>
         </div>
       </div>
+
+      <!-- Pending Matches -->
+      <PendingMatches />
 
       <!-- Version List -->
       <div class="card">
@@ -177,6 +198,15 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             </div>
             <h3>版本列表</h3>
+            <div class="source-tabs">
+              <button
+                v-for="s in sourceOptions"
+                :key="s.value"
+                class="source-tab"
+                :class="{ active: versionSourceFilter === s.value }"
+                @click="versionSourceFilter = s.value; versionPage = 1"
+              >{{ s.label }}<span v-if="s.count != null" class="tab-count">{{ s.count }}</span></button>
+            </div>
           </div>
           <div class="version-table-wrap">
             <table class="version-table">
@@ -187,6 +217,7 @@
                     <span class="sort-icon" v-if="sortField === 'tag'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
                     <span class="sort-icon sort-idle" v-else>↕</span>
                   </th>
+                  <th>来源</th>
                   <th>电影数量</th>
                   <th class="th-sortable" @click="toggleSort('crawled_at')">
                     抓取时间
@@ -204,7 +235,13 @@
                     </template>
                     <template v-else>
                       <span class="version-tag">{{ v.tag }}</span>
+                      <span v-if="v.status === 'pending_confirmation'" class="version-pending-badge">待确认</span>
                     </template>
+                  </td>
+                  <td>
+                    <span class="source-badge" :class="v.source === 'imdb' ? 'source-imdb' : 'source-douban'">
+                      {{ v.source === 'imdb' ? 'IMDb' : '豆瓣' }}
+                    </span>
                   </td>
                   <td>{{ v.movie_count }} 部</td>
                   <td class="td-time">{{ formatTime(v.crawled_at) }}</td>
@@ -359,13 +396,40 @@
         </div>
       </div>
     </div>
+
+    <!-- Delete confirmation modal -->
+    <ConfirmModal
+      :visible="deleteModal.visible"
+      title="删除版本"
+      confirmText="确认删除"
+      :confirmLoading="deleteModal.loading"
+      @cancel="deleteModal.visible = false"
+      @confirm="onDeleteConfirm"
+    >
+      <p v-if="deleteModal.version">
+        确定删除版本
+        <strong>{{ deleteModal.version.tag }}</strong>
+        （{{ deleteModal.version.source === 'imdb' ? 'IMDb' : '豆瓣' }}）吗？
+      </p>
+      <p>
+        该版本包含 <strong>{{ deleteModal.movieCount }}</strong> 部电影，
+        其中 <strong>{{ deleteModal.orphanCount }}</strong> 部在删除后将无任何版本关联，将被一并清理。
+      </p>
+      <p v-if="deleteModal.pendingCount > 0" style="color: #b45309;">
+        ⚠ 该版本还有 <strong>{{ deleteModal.pendingCount }}</strong> 条待确认匹配，将一并删除。
+      </p>
+      <p style="color: #a1a1aa; font-size: 12px; margin-top: 8px;">此操作不可恢复。</p>
+    </ConfirmModal>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useSettingsStore } from '../stores/settings.js'
+import { fetchDeletePreview } from '../api/index.js'
 import PaginationBar from '../components/PaginationBar.vue'
+import PendingMatches from '../components/PendingMatches.vue'
+import ConfirmModal from '../components/ConfirmModal.vue'
 
 const settingsStore = useSettingsStore()
 let progressInterval = null
@@ -387,11 +451,39 @@ const sortField = ref('tag')
 const sortDir = ref('desc')
 const versionPage = ref(1)
 const versionPageSize = ref(10)
+const versionSourceFilter = ref('all')
+
+// Delete confirmation modal
+const deleteModal = ref({ visible: false, version: null, loading: false, movieCount: 0, orphanCount: 0, pendingCount: 0 })
+
+const sourceOptions = computed(() => {
+  const all = settingsStore.versions
+  const doubanCount = all.filter(v => (v.source || 'douban') !== 'imdb').length
+  const imdbCount = all.filter(v => v.source === 'imdb').length
+  return [
+    { value: 'all', label: '全部', count: all.length },
+    { value: 'douban', label: '豆瓣', count: doubanCount },
+    { value: 'imdb', label: 'IMDb', count: imdbCount },
+  ]
+})
 
 const isCrawling = computed(() => settingsStore.crawlProgress?.active || false)
 const isDoulistImporting = computed(() => settingsStore.doulistImportProgress?.active || false)
 const isImdbCrawling = computed(() => settingsStore.imdbProgress?.status === 'running' || false)
 const hasUserId = computed(() => !!settingsStore.doubanUserId)
+
+const imdbDoneMessage = computed(() => {
+  const msg = settingsStore.imdbProgress?.message || ''
+  if (settingsStore.pendingMatchCount > 0) return msg
+  // 移除 "，X 部电影待确认。请前往控制台处理待确认匹配。"
+  let cleaned = msg.replace(/，\d+ 部电影待确认。请前往控制台处理待确认匹配。$/, '')
+  // 用版本列表中的实际数量替换静态数量
+  const imdbVersion = settingsStore.versions.find(v => v.source === 'imdb')
+  if (imdbVersion) {
+    cleaned = cleaned.replace(/（\d+ 部）/, `（${imdbVersion.movie_count} 部）`)
+  }
+  return cleaned
+})
 
 const cookieWarning = computed(() => {
   if (settingsStore.doubanCookie && settingsStore.cookieCheck && !settingsStore.cookieCheck.valid) {
@@ -413,7 +505,14 @@ const doulistPercent = computed(() => {
 })
 
 const sortedVersions = computed(() => {
-  const list = [...settingsStore.versions]
+  let list = [...settingsStore.versions]
+  if (versionSourceFilter.value !== 'all') {
+    if (versionSourceFilter.value === 'imdb') {
+      list = list.filter(v => v.source === 'imdb')
+    } else {
+      list = list.filter(v => (v.source || 'douban') !== 'imdb')
+    }
+  }
   const field = sortField.value
   const dir = sortDir.value === 'asc' ? 1 : -1
   list.sort((a, b) => {
@@ -467,6 +566,7 @@ onMounted(async () => {
     settingsStore.loadCookieCheck(),
     settingsStore.loadDoulistImportProgress(),
     settingsStore.loadImdbProgress(),
+    settingsStore.loadPendingMatchCount(),
   ])
   snapshotCrons()
   progressInterval = setInterval(async () => {
@@ -474,6 +574,7 @@ onMounted(async () => {
     await settingsStore.loadMetadataProgress()
     await settingsStore.loadDoulistImportProgress()
     await settingsStore.loadImdbProgress()
+    await settingsStore.loadPendingMatchCount()
     if (!settingsStore.crawlProgress?.active && !settingsStore.metadataProgress?.active) {
       await Promise.all([
         settingsStore.loadTop250Status(),
@@ -534,9 +635,38 @@ async function onSaveEdit(id) {
 }
 
 async function onDelete(v) {
-  if (!confirm(`确定删除版本 ${v.tag} 吗？此操作不可恢复。`)) return
-  try { await settingsStore.removeVersion(v.id) }
-  catch (e) { alert(e.response?.data?.detail || '删除失败') }
+  try {
+    const { data } = await fetchDeletePreview(v.id)
+    deleteModal.value = {
+      visible: true,
+      version: v,
+      loading: false,
+      movieCount: data.movie_count,
+      orphanCount: data.orphan_movie_count,
+      pendingCount: data.pending_match_count,
+    }
+  } catch (e) {
+    alert(e.response?.data?.detail || '获取删除信息失败')
+  }
+}
+
+async function onDeleteConfirm() {
+  const v = deleteModal.value.version
+  if (!v) return
+  deleteModal.value.loading = true
+  try {
+    const data = await settingsStore.removeVersion(v.id)
+    deleteModal.value.visible = false
+    const msg = []
+    if (data.orphan_movies_deleted > 0) msg.push(`清理了 ${data.orphan_movies_deleted} 部孤立电影`)
+    if (data.posters_deleted > 0) msg.push(`删除了 ${data.posters_deleted} 张海报`)
+    if (data.pending_matches_deleted > 0) msg.push(`删除了 ${data.pending_matches_deleted} 条待确认匹配`)
+    if (msg.length) alert(`版本已删除。\n${msg.join('；')}。`)
+  } catch (e) {
+    alert(e.response?.data?.detail || '删除失败')
+  } finally {
+    deleteModal.value.loading = false
+  }
 }
 </script>
 
@@ -564,8 +694,23 @@ async function onDelete(v) {
 .card-stretch .card-pad { flex: 1; }
 .card-stretch .btn { margin-top: auto; }
 .card-pad { display: flex; flex-direction: column; padding: 18px 20px; gap: 14px; }
-.card-head { display: flex; align-items: flex-start; gap: 10px; }
+.card-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .card-head h3 { font-size: 13px; font-weight: 600; color: #18181b; }
+
+/* === Source tabs (in card-head) === */
+.source-tabs { display: flex; gap: 4px; margin-left: auto; }
+.source-tab {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 10px;
+  border: 1px solid #e4e4e7; border-radius: 6px;
+  background: #fff; color: #71717a;
+  font-size: 11px; font-weight: 500; font-family: inherit;
+  cursor: pointer; transition: all 0.15s;
+}
+.source-tab:hover { border-color: #d4d4d8; color: #3f3f46; }
+.source-tab.active { background: #18181b; border-color: #18181b; color: #fff; }
+.tab-count { font-size: 10px; opacity: 0.6; }
+.source-tab.active .tab-count { opacity: 0.8; }
 .card-subtitle { font-size: 11px; color: #a1a1aa; margin-top: 2px; line-height: 1.4; }
 .card-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
 .icon-violet { background: #f5f3ff; color: #8b5cf6; }
@@ -613,6 +758,7 @@ async function onDelete(v) {
 .tag-row { display: flex; align-items: center; gap: 6px; }
 .tag { display: inline-block; padding: 1px 6px; font-size: 10px; font-weight: 500; border-radius: 4px; background: #f4f4f5; color: #71717a; }
 .tag-green { background: #ecfdf5; color: #10b981; }
+.tag-amber { background: #fffbeb; color: #d97706; }
 .tag-meta { font-size: 11px; color: #a1a1aa; }
 
 /* === Cron === */
@@ -643,6 +789,7 @@ async function onDelete(v) {
 .progress-bar-track { width: 100%; height: 4px; background: #f4f4f5; border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
 .progress-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #6366f1, #818cf8); transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
 .gradient-indigo { background: linear-gradient(90deg, #6366f1, #818cf8); }
+.gradient-amber { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 .stat-row { display: flex; align-items: center; gap: 12px; font-size: 11px; color: #a1a1aa; }
 .stat-green { color: #10b981; font-weight: 500; }
 .stat-red { color: #f43f5e; font-weight: 500; }
@@ -660,6 +807,14 @@ async function onDelete(v) {
 .version-table tr:last-child td { border-bottom: none; }
 .version-table tr:hover td { background: #fafafa; }
 .version-tag { font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace; font-weight: 500; color: #18181b; }
+.version-pending-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 10px; font-weight: 500; border-radius: 4px;
+  background: #fffbeb; color: #d97706;
+}
+.source-badge { display: inline-block; padding: 1px 6px; font-size: 10px; font-weight: 500; border-radius: 4px; }
+.source-douban { background: #eef2ff; color: #6366f1; }
+.source-imdb { background: #fffbeb; color: #d97706; }
 .td-time { font-size: 12px; color: #71717a; white-space: nowrap; }
 .th-sortable { cursor: pointer; user-select: none; }
 .th-sortable:hover { color: #52525b; }

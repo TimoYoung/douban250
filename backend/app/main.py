@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.database import init_db
-from app.api import movies, versions, crawl, users
+from app.api import movies, versions, crawl, users, pending_matches
 from app.services.scheduler import scheduler
 
 # Configure logging to output to console
@@ -37,6 +37,7 @@ app = FastAPI(title="Douban Top 250 Tracker", version="0.1.0", lifespan=lifespan
 app.include_router(movies.router, prefix="/api/movies", tags=["movies"])
 app.include_router(versions.router, prefix="/api/versions", tags=["versions"])
 app.include_router(crawl.router, prefix="/api/crawl", tags=["crawl"])
+app.include_router(pending_matches.router, prefix="/api/pending-matches", tags=["pending-matches"])
 app.include_router(users.router, prefix="/api", tags=["users"])
 
 # Static files for posters

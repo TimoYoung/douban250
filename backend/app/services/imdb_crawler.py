@@ -2,7 +2,11 @@
 IMDb Top 250 爬虫。
 
 使用 Playwright 绕过 IMDb 的 AWS WAF 防护，获取 Top 250 排名数据。
-自动通过豆瓣 suggest API 关联豆瓣词条，获取中文标题。
+匹配策略（按优先级）：
+1. 数据库 imdb_id 精确匹配
+2. 用 IMDb ID 直接搜索豆瓣搜索页（search.douban.com），提取 douban_id
+3. 降级到 suggest API 搜索标题 + 详情页验证 imdb_id
+未匹配的电影进入 pending_matches 等待用户手动确认。
 """
 
 import re
@@ -13,20 +17,17 @@ import logging
 import httpx
 from sqlalchemy.orm import Session
 
-from app.models import Movie, Version, VersionEntry
+from app.config import settings
+from app.models import Movie, Version, VersionEntry, PendingMatch
 from app.utils import now
+from app.utils.http_client import _get_cookie, get_headers
 
 logger = logging.getLogger(__name__)
-
-DOUBAN_COOKIE = (
-    'bid=PDbGNyM0sBU; ll="118172"; '
-    'dbcl2="166675383:4IjQDlj9Pzs"; ck=FbZ8; '
-    'frodotk_db="491df9104b5bc9efdb59eb30e2135dcd"'
-)
 
 _imdb_progress = {
     "status": "idle", "phase": "", "current": 0, "total": 250,
     "message": "", "matched": 0, "created": 0, "douban_searched": 0,
+    "pending": 0, "new_version": None,
 }
 
 
@@ -38,6 +39,7 @@ def _reset_imdb_progress():
     _imdb_progress.update({
         "status": "idle", "phase": "", "current": 0, "total": 250,
         "message": "", "matched": 0, "created": 0, "douban_searched": 0,
+        "pending": 0, "new_version": None,
     })
 
 
@@ -203,16 +205,33 @@ def _has_chinese(text: str) -> bool:
 
 
 def _get_douban_client() -> httpx.Client:
+    """创建豆瓣 HTTP 客户端，使用设置中的 cookie 和统一请求头。"""
+    cookie = _get_cookie()
+    headers = get_headers(cookie)
     return httpx.Client(
-        headers={
-            'User-Agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                           'AppleWebKit/537.36'),
-            'Cookie': DOUBAN_COOKIE,
-            'Referer': 'https://movie.douban.com/',
-        },
+        headers=headers,
         follow_redirects=True,
-        timeout=20,
+        timeout=30,
     )
+
+
+def _douban_delay(base: float = None):
+    """反爬延时：基础延时 + 随机抖动。"""
+    if base is None:
+        base = settings.douban_request_delay
+    time.sleep(base + random.random() * base * 0.5)
+
+
+def _check_blocked(text: str, url: str = ""):
+    """检测是否被豆瓣封锁（验证码/异常请求/PoW挑战）。"""
+    if "检测到有异常请求" in text:
+        raise RuntimeError(f"豆瓣反爬封锁: {url}")
+    # PoW 工作量证明挑战页（SHA-512 hash 碰撞）
+    if 'name="tok"' in text and 'name="cha"' in text and 'sha512' in text:
+        raise RuntimeError(f"豆瓣 PoW 挑战页: {url}")
+    # 极短响应且不含电影内容，可能是被重定向到验证页
+    if len(text) < 1000 and "电影" not in text and "title" not in text.lower():
+        raise RuntimeError(f"豆瓣疑似封锁 (响应过短 {len(text)} 字节): {url}")
 
 
 def _douban_suggest(client: httpx.Client, query: str) -> list[dict]:
@@ -235,6 +254,41 @@ def _douban_suggest(client: httpx.Client, query: str) -> list[dict]:
     return []
 
 
+def _douban_search_by_imdb_id(
+    client: httpx.Client, imdb_id: str
+) -> str | None:
+    """通过豆瓣搜索页用 IMDb ID 直接查询 douban_id。
+
+    使用 search.douban.com/movie/subject_search?search_text={imdb_id}，
+    从搜索结果的 subject 链接中提取第一个 douban_id。
+    """
+    if not imdb_id:
+        return None
+    try:
+        resp = client.get(
+            'https://search.douban.com/movie/subject_search',
+            params={'search_text': imdb_id},
+        )
+        if resp.status_code != 200:
+            logger.warning(f"豆瓣搜索页返回 {resp.status_code}: {imdb_id}")
+            return None
+        text = resp.text
+        # 检测反爬
+        if '检测到有异常请求' in text or '验证码' in text:
+            logger.warning(f"豆瓣搜索页被拦截: {imdb_id}")
+            return None
+        if 'name="tok"' in text and 'sha512' in text:
+            logger.warning(f"豆瓣搜索页 PoW 挑战: {imdb_id}")
+            return None
+        # 提取第一个 subject 链接中的 douban_id
+        m = re.search(r'subject/(\d+)', text)
+        if m:
+            return m.group(1)
+    except Exception as e:
+        logger.warning(f"豆瓣搜索页请求失败: {imdb_id} - {e}")
+    return None
+
+
 def _douban_verify(client: httpx.Client, douban_id: str) -> str | None:
     """通过 abstract API 验证 douban_id，返回 title 或 None。"""
     try:
@@ -250,77 +304,81 @@ def _douban_verify(client: httpx.Client, douban_id: str) -> str | None:
     return None
 
 
-def _search_douban_for_movie(
+def _fetch_imdb_id_from_douban_detail(
+    client: httpx.Client, douban_id: str
+) -> str | None:
+    """访问豆瓣详情页，提取页面中的 IMDb ID。"""
+    url = f'https://movie.douban.com/subject/{douban_id}/'
+    for attempt in range(settings.max_retries):
+        try:
+            resp = client.get(url)
+            if resp.status_code != 200:
+                return None
+            text = resp.text
+            _check_blocked(text, url)
+            # 格式1: 链接形式 imdb.com/title/ttXXXXXXX
+            m = re.search(r'imdb\.com/title/(tt\d+)', text)
+            if m:
+                return m.group(1)
+            # 格式2: 纯文本形式 IMDb:</span> ttXXXXXXX
+            m = re.search(r'IMDb:</span>\s*(tt\d+)', text)
+            if m:
+                return m.group(1)
+            return None
+        except RuntimeError:
+            raise  # 反爬封锁直接抛出
+        except Exception as e:
+            if attempt < settings.max_retries - 1:
+                logger.warning(f"详情页请求失败 (重试 {attempt+1}): {url} - {e}")
+                time.sleep(settings.douban_request_delay * (attempt + 1))
+            else:
+                logger.error(f"详情页请求失败: {url} - {e}")
+    return None
+
+
+def _search_douban_candidates(
     client: httpx.Client, imdb_title: str, year: int
-) -> dict | None:
-    """通过豆瓣 suggest API 搜索电影，返回 {douban_id, cn_title} 或 None。"""
+) -> list[dict]:
+    """搜索豆瓣 suggest，返回所有可能的候选 [{douban_id, title, sub_title, year}]。
+    不做 imdb_id 验证，仅过滤明显不相关的。"""
     queries = [imdb_title]
     if ':' in imdb_title:
         queries.append(imdb_title.split(':')[0].strip())
     if len(imdb_title) > 30:
         queries.append(imdb_title[:30].strip())
 
+    seen_ids = set()
+    candidates = []
+
     for query in queries:
         results = _douban_suggest(client, query)
-        time.sleep(1.0 + random.random() * 2.0)
+        _douban_delay()
 
         for r in results:
-            # 比对 title 和 sub_title
-            if not _titles_match(imdb_title, r['title']) and \
-               not _titles_match(imdb_title, r['sub_title']):
+            if r['id'] in seen_ids:
                 continue
-            # 年份校验
+            # suggest API 本身就是相关性搜索，不做标题过滤
+            # 真正的验证在后续详情页 imdb_id 匹配
+            # 仅做宽松年份过滤（±3年，豆瓣和 IMDb 年份常有差异）
             if year and r.get('year'):
                 try:
-                    if abs(int(r['year']) - year) > 1:
+                    if abs(int(r['year']) - year) > 3:
                         continue
                 except ValueError:
                     continue
-            # 验证 douban_id
-            verified = _douban_verify(client, r['id'])
-            time.sleep(1.0 + random.random() * 2.0)
-            if verified:
-                return {
-                    'douban_id': r['id'],
-                    'cn_title': r['title'],  # 中文标题
-                    'sub_title': r.get('sub_title', ''),  # 英文原名
-                }
-    return None
+            seen_ids.add(r['id'])
+            candidates.append(r)
 
-
-def _fetch_chinese_title(
-    client: httpx.Client, douban_id: str
-) -> str | None:
-    """从豆瓣获取中文标题。"""
-    return _douban_verify(client, douban_id)
+    return candidates
 
 
 # ── 数据库匹配 ──────────────────────────────────────────────────
 
 
-def _find_in_db(db: Session, imdb_id: str, title: str,
-                year: int) -> Movie | None:
-    """在数据库中查找匹配电影（仅查库，不调外部 API）。"""
-    # 1. imdb_id 精确
+def _find_in_db_by_imdb_id(db: Session, imdb_id: str) -> Movie | None:
+    """仅通过 imdb_id 在数据库中查找。"""
     if imdb_id:
-        m = db.query(Movie).filter(Movie.imdb_id == imdb_id).first()
-        if m:
-            return m
-
-    # 2. title + year
-    if not title:
-        return None
-    norm = _normalize(title)
-
-    for dy in [0, -1, 1]:
-        if year + dy <= 0 and dy != 0:
-            continue
-        candidates = db.query(Movie).filter(
-            Movie.year == year + dy).all()
-        for movie in candidates:
-            for mt in [movie.title, movie.original_title]:
-                if mt and _titles_match(title, mt):
-                    return movie
+        return db.query(Movie).filter(Movie.imdb_id == imdb_id).first()
     return None
 
 
@@ -351,7 +409,7 @@ def _merge_movies(db: Session, keep: Movie, remove: Movie):
 
 
 def crawl_imdb_top250(db_factory) -> dict:
-    """爬取 IMDb Top 250 并创建版本。"""
+    """爬取 IMDb Top 250 并创建版本。严格匹配：imdb_id 必须一致。"""
     _reset_imdb_progress()
     _update_progress(status="running", phase="fetching",
                      message="正在爬取 IMDb Top 250...")
@@ -371,6 +429,7 @@ def crawl_imdb_top250(db_factory) -> dict:
 
         try:
             matched_movies = []  # (rank, movie_id, rating)
+            pending_items = []   # 待确认列表
             seen_movie_ids = set()  # deduplicate movie_id
             _update_progress(phase="matching")
 
@@ -381,115 +440,264 @@ def crawl_imdb_top250(db_factory) -> dict:
                 imdb_title = mdata.get("title", "")
                 year = mdata.get("year", 0)
 
-                # Step 1-2: 数据库匹配
-                movie = _find_in_db(db, imdb_id, imdb_title, year)
+                # Step 1: 数据库 imdb_id 精确匹配
+                movie = _find_in_db_by_imdb_id(db, imdb_id)
 
-                if not movie:
-                    # Step 3: 豆瓣 suggest API 搜索
+                if movie:
+                    # 已有记录，直接使用
+                    pass
+                else:
+                    verified_candidates = []  # 候选列表（用于 pending）
+                    # Step 2: 用 IMDb ID 直接搜索豆瓣（首选）
                     _update_progress(
-                        message=f"搜索豆瓣: {imdb_title} ({i+1}/{len(movies_data)})")
-                    douban_info = _search_douban_for_movie(
-                        douban_client, imdb_title, year)
+                        message=f"IMDb ID 搜索豆瓣: {imdb_title} ({i+1}/{len(movies_data)})")
+                    _douban_delay()
+                    douban_id = _douban_search_by_imdb_id(
+                        douban_client, imdb_id)
                     _imdb_progress["douban_searched"] += 1
-                    time.sleep(3.0 + random.random() * 3.0)
 
-                    if douban_info:
-                        did = douban_info['douban_id']
-                        # 查库中是否已有该 douban_id
+                    if douban_id:
+                        # 搜索页返回了结果，用 abstract API 验证标题存在
                         existing = db.query(Movie).filter(
-                            Movie.douban_id == did).first()
+                            Movie.douban_id == douban_id).first()
                         if existing:
                             movie = existing
+                            if imdb_id and not movie.imdb_id:
+                                movie.imdb_id = imdb_id
                         else:
-                            # Step 4a: 新建电影（有豆瓣信息）
-                            movie = Movie(
-                                douban_id=did,
-                                imdb_id=imdb_id,
-                                title=douban_info['cn_title'],
-                                original_title=imdb_title,
-                                year=year,
-                                rating=mdata.get("rating"),
-                            )
-                            db.add(movie)
-                            db.flush()
-                            _imdb_progress["created"] += 1
-                            logger.info(
-                                f"Created: {douban_info['cn_title']} "
-                                f"({imdb_id}, douban={did})")
-                    else:
-                        # Step 4b: 新建电影（无豆瓣信息）
-                        movie = Movie(
-                            imdb_id=imdb_id,
-                            title=imdb_title,
-                            year=year,
-                            rating=mdata.get("rating"),
-                        )
-                        db.add(movie)
-                        db.flush()
-                        _imdb_progress["created"] += 1
-                        logger.info(f"Created (no Douban): {imdb_title}")
+                            cn_title = _douban_verify(
+                                douban_client, douban_id)
+                            _douban_delay()
+                            if cn_title:
+                                movie = Movie(
+                                    douban_id=douban_id,
+                                    imdb_id=imdb_id,
+                                    title=cn_title,
+                                    original_title=imdb_title,
+                                    year=year,
+                                    rating=mdata.get("rating"),
+                                )
+                                db.add(movie)
+                                db.flush()
+                                _imdb_progress["created"] += 1
+                                logger.info(
+                                    f"Created (IMDb search): {cn_title} "
+                                    f"({imdb_id}, douban={douban_id})")
 
-                # 补充 imdb_id
-                if imdb_id and not movie.imdb_id:
-                    movie.imdb_id = imdb_id
+                    if not movie:
+                        # Step 3: 降级到 suggest API + 详情页验证
+                        _update_progress(
+                            message=f"搜索豆瓣 suggest: {imdb_title} ({i+1}/{len(movies_data)})")
+                        candidates = _search_douban_candidates(
+                            douban_client, imdb_title, year)
+                        _douban_delay(3.0)
 
-                # Step 5: 标题修正 — 如果标题无中文，尝试获取中文名
-                if not _has_chinese(movie.title):
-                    cn = _fetch_chinese_title(douban_client, movie.douban_id)
-                    if cn and _has_chinese(cn):
-                        if not movie.original_title:
-                            movie.original_title = movie.title
-                        movie.title = cn
+                        matched_candidate = None
+                        verified_candidates = []
+
+                        for cand in candidates:
+                            try:
+                                detail_imdb_id = _fetch_imdb_id_from_douban_detail(
+                                    douban_client, cand['id'])
+                            except RuntimeError as e:
+                                logger.warning(f"详情页验证失败: {e}")
+                                detail_imdb_id = None
+                            _douban_delay(2.0)
+
+                            cand_info = {
+                                'douban_id': cand['id'],
+                                'title': cand['title'],
+                                'year': cand.get('year', ''),
+                                'imdb_id_from_detail': detail_imdb_id,
+                            }
+                            verified_candidates.append(cand_info)
+
+                            if detail_imdb_id and imdb_id and \
+                               detail_imdb_id == imdb_id:
+                                matched_candidate = cand
+                                break
+
+                        if matched_candidate:
+                            did = matched_candidate['id']
+                            existing = db.query(Movie).filter(
+                                Movie.douban_id == did).first()
+                            if existing:
+                                movie = existing
+                                if imdb_id and not movie.imdb_id:
+                                    movie.imdb_id = imdb_id
+                            else:
+                                cn_title = _douban_verify(
+                                    douban_client, did)
+                                _douban_delay()
+                                movie = Movie(
+                                    douban_id=did,
+                                    imdb_id=imdb_id,
+                                    title=cn_title or matched_candidate['title'],
+                                    original_title=imdb_title,
+                                    year=year,
+                                    rating=mdata.get("rating"),
+                                )
+                                db.add(movie)
+                                db.flush()
+                                _imdb_progress["created"] += 1
+                                logger.info(
+                                    f"Created (suggest): {cn_title} "
+                                    f"({imdb_id}, douban={did})")
+
+                    if not movie:
+                        # 所有方式均未匹配 → pending
+                        _imdb_progress["pending"] += 1
+                        pending_items.append({
+                            'imdb_id': imdb_id,
+                            'imdb_title': imdb_title,
+                            'year': year,
+                            'rank': rank,
+                            'candidates': verified_candidates,
+                        })
                         logger.info(
-                            f"Title fixed: {movie.original_title} -> {cn}")
+                            f"Pending: {imdb_title} ({imdb_id})")
+                        continue
 
-                # 去重：同一部电影可能被多部 IMDb 电影匹配到
-                if movie.id in seen_movie_ids:
-                    logger.info(f"Skipping duplicate: {imdb_title} -> movie_id={movie.id}")
+                # 冲突：同一部豆瓣电影被多部 IMDb 电影关联 → 两者都进待确认
+                if movie and movie.id in seen_movie_ids:
+                    logger.warning(
+                        f"Conflict: {imdb_title} ({imdb_id}) "
+                        f"-> movie_id={movie.id} already matched by another IMDb entry")
+                    _imdb_progress["pending"] += 1
+                    pending_items.append({
+                        'imdb_id': imdb_id,
+                        'imdb_title': imdb_title,
+                        'year': year,
+                        'rank': rank,
+                        'candidates': [{
+                            'douban_id': movie.douban_id,
+                            'title': movie.title,
+                            'year': str(movie.year) if movie.year else '',
+                            'imdb_id_from_detail': movie.imdb_id,
+                        }],
+                    })
                     continue
-                seen_movie_ids.add(movie.id)
-
-                matched_movies.append(
-                    (rank, movie.id, mdata.get("rating")))
-                _imdb_progress["matched"] += 1
+                if movie:
+                    seen_movie_ids.add(movie.id)
+                    matched_movies.append(
+                        (rank, movie.id, mdata.get("rating")))
+                    _imdb_progress["matched"] += 1
 
                 if (i + 1) % 10 == 0:
                     db.commit()
 
-            db.commit()
-            douban_client.close()
-
-            # Phase 3: 创建版本
+            # Phase 3: 检查是否有变化，无变化则不创建版本
             _update_progress(phase="creating_version",
-                             message="创建版本...")
-            tag = now().strftime("%Y-%m-%d")
-            suffix = 1
-            base_tag = tag
-            while db.query(Version).filter(Version.tag == tag).first():
-                suffix += 1
-                tag = f"{base_tag}-{suffix}"
+                             message="检查版本变化...")
 
-            version = Version(
-                tag=tag, source="imdb",
-                crawled_at=now(), movie_count=len(matched_movies))
-            db.add(version)
-            db.flush()
+            has_pending = len(pending_items) > 0
+            current_movie_ids = [mid for _, mid, _ in matched_movies]
 
-            db.add_all([
-                VersionEntry(
-                    version_id=version.id,
-                    movie_id=mid, rank=rk, rating=rt)
-                for rk, mid, rt in matched_movies
-            ])
-            db.commit()
+            # 获取最新的 IMDb 版本
+            latest_imdb = db.query(Version).filter(
+                Version.source == "imdb"
+            ).order_by(Version.tag.desc()).first()
 
-            _update_progress(
-                status="done", phase="done",
-                message=(
-                    f"完成！版本 {tag}：{len(matched_movies)} 部电影，"
-                    f"匹配 {_imdb_progress['matched']}，"
-                    f"新建 {_imdb_progress['created']}，"
-                    f"豆瓣检索 {_imdb_progress['douban_searched']}"))
+            version_created = True
+            if latest_imdb:
+                latest_entries = (
+                    db.query(VersionEntry)
+                    .filter(VersionEntry.version_id == latest_imdb.id)
+                    .order_by(VersionEntry.rank)
+                    .all()
+                )
+                latest_movie_ids = [e.movie_id for e in latest_entries]
+
+                if current_movie_ids == latest_movie_ids:
+                    # 电影列表完全相同，不创建新版本
+                    version_created = False
+                    logger.info(
+                        f"IMDb list unchanged vs {latest_imdb.tag}, "
+                        f"skipping version creation")
+                    # pending matches 仍然保存到最新版本上
+                    if has_pending:
+                        for pi in pending_items:
+                            pm = PendingMatch(
+                                version_id=latest_imdb.id,
+                                imdb_id=pi['imdb_id'],
+                                imdb_title=pi['imdb_title'],
+                                year=pi['year'],
+                                rank=pi['rank'],
+                                candidates=pi['candidates'],
+                                status='pending',
+                            )
+                            db.add(pm)
+                        db.commit()
+                    _update_progress(
+                        status="done", phase="done", new_version=False,
+                        message=(
+                            f"榜单无变化（与 {latest_imdb.tag} 一致），未创建新版本。"
+                            + (f" {len(pending_items)} 部电影待确认。"
+                               if has_pending else "")))
+                else:
+                    # 有变化，记录 diff
+                    current_set = set(current_movie_ids)
+                    latest_set = set(latest_movie_ids)
+                    added = current_set - latest_set
+                    removed = latest_set - current_set
+                    if added:
+                        added_movies = db.query(Movie).filter(Movie.id.in_(added)).all()
+                        logger.info(f"New movies: {[m.title for m in added_movies]}")
+                    if removed:
+                        removed_movies = db.query(Movie).filter(Movie.id.in_(removed)).all()
+                        logger.info(f"Removed movies: {[m.title for m in removed_movies]}")
+
+            if version_created:
+                tag = now().strftime("%Y-%m-%d")
+                suffix = 1
+                base_tag = tag
+                while db.query(Version).filter(
+                        Version.tag == tag,
+                        Version.source == "imdb").first():
+                    suffix += 1
+                    tag = f"{base_tag}-{suffix}"
+
+                version = Version(
+                    tag=tag, source="imdb",
+                    status="pending_confirmation" if has_pending else "confirmed",
+                    crawled_at=now(), movie_count=len(matched_movies))
+                db.add(version)
+                db.flush()
+
+                for pi in pending_items:
+                    pm = PendingMatch(
+                        version_id=version.id,
+                        imdb_id=pi['imdb_id'],
+                        imdb_title=pi['imdb_title'],
+                        year=pi['year'],
+                        rank=pi['rank'],
+                        candidates=pi['candidates'],
+                        status='pending',
+                    )
+                    db.add(pm)
+
+                db.add_all([
+                    VersionEntry(
+                        version_id=version.id,
+                        movie_id=mid, rank=rk, rating=rt)
+                    for rk, mid, rt in matched_movies
+                ])
+                db.commit()
+
+                if has_pending:
+                    _update_progress(
+                        status="done", phase="done", new_version=True,
+                        message=(
+                            f"版本 {tag} 已创建（{len(matched_movies)} 部），"
+                            f"{len(pending_items)} 部电影待确认。"
+                            f"请前往控制台处理待确认匹配。"))
+                else:
+                    _update_progress(
+                        status="done", phase="done", new_version=True,
+                        message=(
+                            f"完成！版本 {tag}：{len(matched_movies)} 部电影，"
+                            f"匹配 {_imdb_progress['matched']}，"
+                            f"新建 {_imdb_progress['created']}"))
 
         finally:
             douban_client.close()

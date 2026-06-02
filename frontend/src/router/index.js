@@ -22,13 +22,8 @@ const routes = [
   },
   {
     path: '/compare',
-    name: 'PlatformCompare',
-    component: () => import('../views/PlatformCompareView.vue'),
-  },
-  {
-    path: '/versions',
-    name: 'VersionDiff',
-    component: () => import('../views/VersionDiffView.vue'),
+    name: 'Compare',
+    component: () => import('../views/CompareView.vue'),
   },
   {
     path: '/settings',

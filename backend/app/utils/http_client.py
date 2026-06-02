@@ -62,8 +62,9 @@ def fetch_page(url: str, cookie: str = "") -> str:
 
 
 def fetch_binary(url: str) -> bytes:
-    """Fetch binary content (e.g., images) with retry."""
-    headers = get_headers()
+    """Fetch binary content (e.g., images) with retry and cookie."""
+    cookie = _get_cookie()
+    headers = get_headers(cookie)
     last_error = None
 
     for attempt in range(settings.max_retries):

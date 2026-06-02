@@ -234,9 +234,11 @@ def _create_version_if_changed(db: Session, movie_objects: list) -> dict:
     # Create new version
     today = now().strftime("%Y-%m-%d")
     tag = today
-    # Ensure unique tag
+    # Ensure unique tag per source
     suffix = 1
-    while db.query(Version).filter(Version.tag == tag).first():
+    while db.query(Version).filter(
+            Version.tag == tag,
+            Version.source == "douban").first():
         suffix += 1
         tag = f"{today}-{suffix}"
 

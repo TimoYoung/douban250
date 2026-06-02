@@ -8,6 +8,8 @@ import {
   triggerDoulistImport, fetchDoulistImportProgress,
   triggerImdbCrawl, fetchImdbProgress,
   fetchVersions, deleteVersion, updateVersion,
+  fetchPendingMatches, resolvePendingMatch,
+  fetchPendingMatchCount,
 } from '../api/index.js'
 
 export const useSettingsStore = defineStore('settings', {
@@ -31,6 +33,10 @@ export const useSettingsStore = defineStore('settings', {
     versions: [],
     loading: false,
     saving: false,
+    // Pending matches
+    pendingMatches: [],
+    pendingMatchCount: 0,
+    pendingMatchesLoading: false,
   }),
 
   actions: {
@@ -44,6 +50,7 @@ export const useSettingsStore = defineStore('settings', {
         this.doubanCookie = data.douban_cookie || ''
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
+        this.imdbCron = data.imdb_cron || ''
       } finally {
         this.loading = false
       }
@@ -154,6 +161,42 @@ export const useSettingsStore = defineStore('settings', {
       this.imdbProgress = data
     },
 
+    // Pending matches
+    async loadPendingMatches() {
+      this.pendingMatchesLoading = true
+      try {
+        const { data } = await fetchPendingMatches()
+        this.pendingMatches = data.movies
+        this.pendingMatchCount = data.total
+      } finally {
+        this.pendingMatchesLoading = false
+      }
+    },
+
+    async loadPendingMatchCount() {
+      const { data } = await fetchPendingMatchCount()
+      this.pendingMatchCount = data.total
+    },
+
+    async resolveMatch(imdbId, action, candidateDoubanId, manualDoubanId) {
+      const body = { action }
+      if (candidateDoubanId) body.candidate_douban_id = candidateDoubanId
+      if (manualDoubanId) body.manual_douban_id = manualDoubanId
+      const { data } = await resolvePendingMatch(imdbId, body)
+      // 从列表中移除已处理的电影
+      this.pendingMatches = this.pendingMatches.filter(m => m.imdb_id !== imdbId)
+      this.pendingMatchCount = this.pendingMatches.length
+      await this.loadVersions()
+      return data
+    },
+
+    async finalizeVersion() {
+      // 不再需要，保留兼容
+      this.pendingMatches = []
+      this.pendingMatchCount = 0
+      await this.loadVersions()
+    },
+
     // Versions
     async loadVersions() {
       const { data } = await fetchVersions()
@@ -161,8 +204,9 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async removeVersion(id) {
-      await deleteVersion(id)
+      const { data } = await deleteVersion(id)
       this.versions = this.versions.filter(v => v.id !== id)
+      return data
     },
 
     async editVersionTag(id, tag) {

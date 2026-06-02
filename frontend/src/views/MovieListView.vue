@@ -28,7 +28,10 @@
               @mousedown.prevent="jumpToVersion(r)"
             >
               <span class="dropdown-title">{{ r.title }}</span>
-              <span class="dropdown-meta">{{ r.latest_version_tag }} 排名 #{{ r.rank }}</span>
+              <span class="dropdown-meta">
+                <span class="source-badge" :class="r.source === 'imdb' ? 'source-imdb' : 'source-douban'">{{ r.source === 'imdb' ? 'IMDb' : '豆瓣' }}</span>
+                {{ r.latest_version_tag }} 排名 #{{ r.rank }}
+              </span>
             </div>
           </div>
         </div>
@@ -280,8 +283,30 @@ function loadData() {
 
 .dropdown-meta {
   font-size: 11px;
-  color: #6366f1;
+  color: #71717a;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.source-badge {
+  display: inline-block;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 3px;
+  line-height: 16px;
+}
+
+.source-douban {
+  background: #eef2ff;
+  color: #6366f1;
+}
+
+.source-imdb {
+  background: #fffbeb;
+  color: #d97706;
 }
 
 .filter-select {

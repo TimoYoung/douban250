@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
@@ -24,5 +24,60 @@ def get_db():
         db.close()
 
 
+def _run_migrations(db):
+    """运行增量迁移。"""
+    # 检查 pending_matches 表是否有 version_id 列
+    result = db.execute(text("PRAGMA table_info(pending_matches)"))
+    columns = {row[1] for row in result}
+    if 'version_id' not in columns:
+        db.execute(text(
+            "ALTER TABLE pending_matches "
+            "ADD COLUMN version_id INTEGER REFERENCES versions(id)"))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS "
+            "ix_pending_matches_version_id "
+            "ON pending_matches(version_id)"))
+        db.commit()
+
+    # 版本表：tag 唯一约束改为 (tag, source) 联合唯一
+    # SQLite 不支持修改约束，需要重建表
+    indexes = db.execute(text("PRAGMA index_list(versions)")).fetchall()
+    has_tag_only_unique = False
+    for idx in indexes:
+        idx_name = idx[1]
+        idx_unique = idx[2]
+        if idx_unique:
+            cols = db.execute(text(
+                f"PRAGMA index_info('{idx_name}')")).fetchall()
+            col_names = [c[2] for c in cols]
+            if col_names == ['tag']:
+                has_tag_only_unique = True
+                break
+    if has_tag_only_unique:
+        db.execute(text(
+            "CREATE TABLE IF NOT EXISTS versions_new ("
+            "id INTEGER PRIMARY KEY, "
+            "tag VARCHAR(20) NOT NULL, "
+            "source VARCHAR(20) NOT NULL DEFAULT 'douban', "
+            "status VARCHAR(30) NOT NULL DEFAULT 'confirmed', "
+            "crawled_at DATETIME NOT NULL, "
+            "movie_count INTEGER NOT NULL DEFAULT 250, "
+            "UNIQUE(tag, source))"))
+        db.execute(text(
+            "INSERT OR IGNORE INTO versions_new "
+            "(id, tag, source, status, crawled_at, movie_count) "
+            "SELECT id, tag, source, status, crawled_at, movie_count "
+            "FROM versions"))
+        db.execute(text("DROP TABLE versions"))
+        db.execute(text("ALTER TABLE versions_new RENAME TO versions"))
+        db.commit()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # 运行迁移
+    db = SessionLocal()
+    try:
+        _run_migrations(db)
+    finally:
+        db.close()

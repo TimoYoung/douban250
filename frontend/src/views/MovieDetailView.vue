@@ -22,8 +22,14 @@
             <div v-if="movie.cast_members && movie.cast_members.length">
               <strong>主演：</strong>{{ movie.cast_members.join(', ') }}
             </div>
-            <div v-if="movie.rating"><strong>评分：</strong>{{ movie.rating }} ({{ movie.rating_count }}人评价)</div>
-            <div v-if="movie.current_rank"><strong>当前排名：</strong>#{{ movie.current_rank }}</div>
+            <div v-if="movie.rating"><strong>豆瓣评分：</strong>{{ movie.rating }}</div>
+            <div v-if="movie.current_ranks && movie.current_ranks.length">
+              <div v-for="cr in movie.current_ranks" :key="cr.source" class="current-rank-item">
+                <strong>{{ cr.source === 'imdb' ? 'IMDb' : '豆瓣' }}排名：</strong>
+                <span class="rank-value">#{{ cr.rank }}</span>
+                <span class="rank-tag">({{ cr.tag }})</span>
+              </div>
+            </div>
             <div v-if="movie.watched" class="watched-tag">✓ 已看过</div>
             <div v-if="movie.douban_url">
               <a :href="movie.douban_url" target="_blank" rel="noopener" class="external-link douban-link">在豆瓣中打开 →</a>
@@ -154,6 +160,21 @@ onMounted(() => {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
+}
+
+.current-rank-item {
+  line-height: 1.7;
+}
+
+.rank-value {
+  font-weight: 600;
+  color: #18181b;
+}
+
+.rank-tag {
+  color: #a1a1aa;
+  font-size: 12px;
+  margin-left: 2px;
 }
 
 .douban-link {

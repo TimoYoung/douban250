@@ -37,12 +37,19 @@ class MovieListItem(BeijingBaseModel):
     rank_change: Optional[int] = None  # None=new, >0=up, <0=down, 0=same
 
 
+class CurrentRank(BeijingBaseModel):
+    """某平台的最新排名"""
+    source: str  # 'douban' or 'imdb'
+    tag: str     # 版本日期
+    rank: int
+
+
 class MovieDetail(MovieBase):
     id: int
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     rank_history: list[dict] = []
-    current_rank: Optional[int] = None
+    current_ranks: list[CurrentRank] = []
     watched: bool = False
 
 

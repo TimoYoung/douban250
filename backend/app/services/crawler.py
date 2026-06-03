@@ -201,8 +201,10 @@ def _create_version_if_changed(db: Session, movie_objects: list) -> dict:
     """Create a new version if the movie list has changed."""
     current_ids = [m.douban_id for m, _ in movie_objects]
 
-    # Get latest version by tag date (not by id, since imports may have higher ids)
-    latest_version = db.query(Version).order_by(Version.tag.desc()).first()
+    # Get latest douban version by tag date
+    latest_version = db.query(Version).filter(
+        Version.source == "douban"
+    ).order_by(Version.tag.desc()).first()
 
     if latest_version:
         # Get ordered list of douban_ids from latest version

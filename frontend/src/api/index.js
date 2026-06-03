@@ -107,15 +107,6 @@ export function fetchCookieCheck() {
   return api.get('/crawl/cookie-check')
 }
 
-// Doulist import
-export function triggerDoulistImport(url, tag) {
-  return api.post('/crawl/doulist', { url, tag })
-}
-
-export function fetchDoulistImportProgress() {
-  return api.get('/crawl/doulist/progress')
-}
-
 // IMDb
 export function triggerImdbCrawl() {
   return api.post('/crawl/imdb')

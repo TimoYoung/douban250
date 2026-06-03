@@ -18,7 +18,6 @@
 - **智能搜索** — 全局搜索支持跨平台结果，标注来源（豆瓣/IMDb），显示平台排名
 - **版本管理** — 版本列表支持筛选平台、编辑日期、删除（含二次确认、孤立电影和海报自动清理）
 - **Docker 部署** — 多阶段构建，一键启动，前后端打包为单一镜像
-- **手动导入 Doulist** — 在设置页面输入豆瓣豆列链接和日期版本，手动创建历史版本
 - **时区** — 所有时间均为北京时间（UTC+8）
 
 ## 技术栈
@@ -141,7 +140,6 @@ douban250/
 │   │   │   ├── imdb_crawler.py # IMDb Top 250 爬虫（Playwright + 豆瓣关联）
 │   │   │   ├── user_scraper.py # 用户看过列表爬虫（增量/全量）
 │   │   │   ├── metadata.py    # 元数据补全、详情页解析
-│   │   │   ├── doulist_importer.py # Doulist 导入服务
 │   │   │   └── scheduler.py   # APScheduler 定时任务
 │   │   ├── utils/             # HTTP 客户端、HTML 解析
 │   │   ├── config.py          # 配置管理（Pydantic Settings）
@@ -202,11 +200,9 @@ douban250/
 | POST | `/api/crawl/imdb` | 手动触发 IMDb Top 250 爬取 |
 | POST | `/api/crawl/user-watched?full=false` | 手动触发用户看过列表同步（增量/全量） |
 | POST | `/api/crawl/metadata?force=false` | 手动触发元数据补全 |
-| POST | `/api/crawl/doulist` | 手动导入 Doulist 创建版本（body: `{url, tag}`） |
 | GET | `/api/crawl/progress` | 豆瓣爬取实时进度 |
 | GET | `/api/crawl/imdb/progress` | IMDb 爬取实时进度 |
 | GET | `/api/crawl/metadata/progress` | 元数据补全实时进度 |
-| GET | `/api/crawl/doulist/progress` | Doulist 导入实时进度 |
 | GET | `/api/crawl/status` | 最近一次爬取状态 |
 | GET | `/api/crawl/status/top250` | Top 250 爬取状态 |
 | GET | `/api/crawl/status/user-watched` | 用户爬取状态 |

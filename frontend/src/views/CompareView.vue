@@ -68,15 +68,15 @@
       <!-- Summary -->
       <div class="summary-bar">
         <span class="summary-item">
-          <span class="dot dot-green"></span>
+          <span class="dot dot-gray"></span>
           {{ displayData.same_source ? '未变' : '共同' }} <strong>{{ displayData.summary.common_count }}</strong> 部
         </span>
         <span class="summary-item">
-          <span class="dot dot-blue"></span>
+          <span class="dot" :class="displayData.same_source ? 'dot-red' : 'dot-green'"></span>
           {{ displayData.labelOnlyA }} <strong>{{ displayData.summary.only_a_count }}</strong> 部
         </span>
         <span class="summary-item">
-          <span class="dot dot-amber"></span>
+          <span class="dot" :class="displayData.same_source ? 'dot-green' : 'dot-amber'"></span>
           {{ displayData.labelOnlyB }} <strong>{{ displayData.summary.only_b_count }}</strong> 部
         </span>
       </div>
@@ -86,7 +86,9 @@
         <details open>
           <summary class="section-title">{{ displayData.labelOnlyA }}（{{ displayData.display_only_a.length }} 部）</summary>
           <div class="movie-chips">
-            <span v-for="m in displayData.display_only_a" :key="m.movie_id" class="chip" @click="goDetail(m)">
+            <span v-for="m in displayData.display_only_a" :key="m.movie_id"
+              class="chip" :class="displayData.same_source ? 'chip-red' : 'chip-green'"
+              @click="goDetail(m)">
               #{{ m.rank }} {{ m.title }}
             </span>
           </div>
@@ -98,20 +100,20 @@
         <details open>
           <summary class="section-title">{{ displayData.labelOnlyB }}（{{ displayData.display_only_b.length }} 部）</summary>
           <div class="movie-chips">
-            <span v-for="m in displayData.display_only_b" :key="m.movie_id" class="chip" @click="goDetail(m)">
+            <span v-for="m in displayData.display_only_b" :key="m.movie_id"
+              class="chip" :class="displayData.same_source ? 'chip-green' : 'chip-amber'"
+              @click="goDetail(m)">
               #{{ m.rank }} {{ m.title }}
             </span>
           </div>
         </details>
       </div>
 
-      <!-- Rank changes / Common with delta -->
-      <div class="section" v-if="displayData.display_common.length">
+      <!-- Cross-platform: common with delta -->
+      <div class="section" v-if="!displayData.same_source && displayData.display_common.length">
         <details open>
           <summary class="section-title">
-            {{ displayData.same_source ? '排名变化' : '排名差异' }}
-            （{{ displayData.display_common.length }} 部，
-            {{ displayData.same_source ? '变动最大 Top 20' : '差异最大 Top 20' }}）
+            排名差异（{{ displayData.display_common.length }} 部，差异最大 Top 20）
           </summary>
           <table class="compare-table">
             <thead>
@@ -136,9 +138,9 @@
         </details>
       </div>
 
-      <!-- Rank up (same source only) -->
+      <!-- Same-source: rank up top 10 -->
       <div class="section" v-if="displayData.same_source && displayData.rank_up.length">
-        <details>
+        <details open>
           <summary class="section-title">排名上升 Top {{ Math.min(displayData.rank_up.length, 10) }}</summary>
           <table class="compare-table">
             <thead>
@@ -156,9 +158,9 @@
         </details>
       </div>
 
-      <!-- Rank down (same source only) -->
+      <!-- Same-source: rank down top 10 -->
       <div class="section" v-if="displayData.same_source && displayData.rank_down.length">
-        <details>
+        <details open>
           <summary class="section-title">排名下降 Top {{ Math.min(displayData.rank_down.length, 10) }}</summary>
           <table class="compare-table">
             <thead>
@@ -557,6 +559,8 @@ function goDetail(movie) {
 .dot-green { background: #10b981; }
 .dot-blue { background: #1890ff; }
 .dot-amber { background: #f5c518; }
+.dot-red { background: #ef4444; }
+.dot-gray { background: #a1a1aa; }
 
 /* Sections */
 .section {
@@ -613,6 +617,13 @@ function goDetail(movie) {
 }
 
 .chip:hover { background: #e4e4e7; }
+
+.chip-green { background: #dcfce7; color: #166534; }
+.chip-green:hover { background: #bbf7d0; }
+.chip-red { background: #fee2e2; color: #991b1b; }
+.chip-red:hover { background: #fecaca; }
+.chip-amber { background: #fef3c7; color: #92400e; }
+.chip-amber:hover { background: #fde68a; }
 
 .compare-table {
   width: 100%;

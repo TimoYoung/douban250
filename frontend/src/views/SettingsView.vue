@@ -130,61 +130,6 @@
             </button>
           </div>
         </div>
-
-        <!-- 从豆列导入豆瓣历史榜单 -->
-        <div class="card card-stretch" :class="{ 'card-active': isDoulistImporting }">
-          <div class="card-pad">
-            <div class="card-head">
-              <div class="card-icon icon-indigo">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </div>
-              <div>
-                <h3>从豆列导入豆瓣历史榜单</h3>
-                <p class="card-subtitle">从 Doulist 链接导入指定日期的豆瓣排行榜数据</p>
-              </div>
-            </div>
-            <div class="card-body">
-              <div class="doulist-hint">
-                豆列必须是用户保存的、按顺序排列的历史豆瓣 Top 250 列表。例如：<code>https://www.douban.com/doulist/918989/</code>
-              </div>
-              <div class="doulist-fields">
-                <div class="field-sm">
-                  <label>Doulist 链接</label>
-                  <input v-model="doulistUrl" placeholder="https://www.douban.com/doulist/918989/" :disabled="isDoulistImporting" />
-                </div>
-                <div class="field-sm field-sm-date">
-                  <label>版本日期</label>
-                  <input v-model="doulistTag" type="date" :disabled="isDoulistImporting" />
-                </div>
-              </div>
-              <div v-if="settingsStore.doulistImportProgress?.active" class="import-progress">
-                <p class="progress-msg">{{ settingsStore.doulistImportProgress.message }}</p>
-                <div class="progress-label">
-                  <span>页面进度</span>
-                  <span class="progress-pct accent">{{ doulistPercent }}%</span>
-                </div>
-                <div class="progress-bar-track">
-                  <div class="progress-bar-fill gradient-indigo" :style="{ width: doulistPercent + '%' }"></div>
-                </div>
-                <div class="stat-row">
-                  <span>第 {{ settingsStore.doulistImportProgress.page_current }}/{{ settingsStore.doulistImportProgress.page_total }} 页</span>
-                  <span class="tag">{{ settingsStore.doulistImportProgress.movies_found }} 部</span>
-                </div>
-              </div>
-              <p v-else-if="settingsStore.doulistImportProgress?.success" class="result-msg result-ok">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                {{ settingsStore.doulistImportProgress.message }}
-              </p>
-              <p v-else-if="settingsStore.doulistImportProgress?.error" class="result-msg result-err">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                {{ settingsStore.doulistImportProgress.message }}
-              </p>
-            </div>
-            <button class="btn btn-dark w-full" :disabled="isDoulistImporting || !doulistUrl || !doulistTag" @click="onDoulistImport">
-              {{ isDoulistImporting ? '导入中...' : '导入' }}
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- Pending Matches -->
@@ -434,10 +379,6 @@ import ConfirmModal from '../components/ConfirmModal.vue'
 const settingsStore = useSettingsStore()
 let progressInterval = null
 
-// Create version
-const doulistUrl = ref('')
-const doulistTag = ref('')
-
 // Cron saved snapshots (for dirty detection)
 const savedCron = ref('')
 const savedMetaCron = ref('')
@@ -468,7 +409,6 @@ const sourceOptions = computed(() => {
 })
 
 const isCrawling = computed(() => settingsStore.crawlProgress?.active || false)
-const isDoulistImporting = computed(() => settingsStore.doulistImportProgress?.active || false)
 const isImdbCrawling = computed(() => settingsStore.imdbProgress?.status === 'running' || false)
 const hasUserId = computed(() => !!settingsStore.doubanUserId)
 
@@ -496,12 +436,6 @@ const metaPercent = computed(() => {
   const p = settingsStore.metadataProgress
   if (!p || p.total === 0) return 0
   return Math.round(p.done / p.total * 100)
-})
-
-const doulistPercent = computed(() => {
-  const p = settingsStore.doulistImportProgress
-  if (!p || !p.page_total) return 0
-  return Math.round(p.page_current / p.page_total * 100)
 })
 
 const sortedVersions = computed(() => {
@@ -564,7 +498,6 @@ onMounted(async () => {
     settingsStore.loadMetadataProgress(),
     settingsStore.loadMetadataStatus(),
     settingsStore.loadCookieCheck(),
-    settingsStore.loadDoulistImportProgress(),
     settingsStore.loadImdbProgress(),
     settingsStore.loadPendingMatchCount(),
   ])
@@ -572,7 +505,6 @@ onMounted(async () => {
   progressInterval = setInterval(async () => {
     await settingsStore.loadCrawlProgress()
     await settingsStore.loadMetadataProgress()
-    await settingsStore.loadDoulistImportProgress()
     await settingsStore.loadImdbProgress()
     await settingsStore.loadPendingMatchCount()
     if (!settingsStore.crawlProgress?.active && !settingsStore.metadataProgress?.active) {
@@ -582,9 +514,7 @@ onMounted(async () => {
         settingsStore.loadMetadataStatus(),
       ])
     }
-    if (!settingsStore.doulistImportProgress?.active) {
-      await settingsStore.loadVersions()
-    }
+    await settingsStore.loadVersions()
   }, 2000)
 })
 
@@ -614,11 +544,6 @@ async function onTriggerUserScrape() { await settingsStore.triggerUserScrape() }
 async function onTriggerUserScrapeFull() { await settingsStore.triggerUserScrape(true) }
 async function onTriggerMeta() { await settingsStore.triggerMetadataBackfill() }
 async function onTriggerImdbCrawl() { await settingsStore.triggerImdbCrawl() }
-
-async function onDoulistImport() {
-  if (!doulistUrl.value || !doulistTag.value) return
-  await settingsStore.triggerDoulistImportAction(doulistUrl.value, doulistTag.value)
-}
 
 function startEdit(v) { editingId.value = v.id; editTag.value = v.tag }
 function cancelEdit() { editingId.value = null; editTag.value = '' }
@@ -720,28 +645,6 @@ async function onDeleteConfirm() {
 .icon-emerald { background: #ecfdf5; color: #10b981; }
 .card-body { flex: 1; }
 
-/* === Doulist hint === */
-.doulist-hint {
-  font-size: 11px;
-  color: #71717a;
-  line-height: 1.5;
-  padding: 8px 10px;
-  background: #fafafa;
-  border-radius: 6px;
-  border: 1px solid #f4f4f5;
-}
-.doulist-hint code {
-  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-  font-size: 10px;
-  background: #f4f4f5;
-  padding: 1px 4px;
-  border-radius: 3px;
-  color: #6366f1;
-}
-
-/* === Doulist fields === */
-.doulist-fields { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
-@media (max-width: 640px) { .doulist-fields { grid-template-columns: 1fr; } }
 .field-sm-date { width: 180px; }
 @media (max-width: 640px) { .field-sm-date { width: 100%; } }
 .field-sm label { display: block; margin-bottom: 5px; font-size: 11px; font-weight: 500; color: #71717a; }

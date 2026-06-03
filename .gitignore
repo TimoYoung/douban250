@@ -35,3 +35,6 @@ docker/posters/
 # Frontend build output
 backend/static/
 raw/
+
+# backup
+*.tar.gz

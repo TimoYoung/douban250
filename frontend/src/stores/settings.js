@@ -5,7 +5,6 @@ import {
   fetchCrawlStatus, fetchCrawlProgress,
   fetchTop250Status, fetchUserWatchedStatus,
   fetchMetadataProgress, fetchMetadataStatus, fetchCookieCheck,
-  triggerDoulistImport, fetchDoulistImportProgress,
   triggerImdbCrawl, fetchImdbProgress,
   fetchVersions, deleteVersion, updateVersion,
   fetchPendingMatches, resolvePendingMatch,
@@ -28,7 +27,6 @@ export const useSettingsStore = defineStore('settings', {
     metadataStatus: null,
     cookieCheck: null,
     checkingCookie: false,
-    doulistImportProgress: null,
     imdbProgress: null,
     versions: [],
     loading: false,
@@ -137,17 +135,6 @@ export const useSettingsStore = defineStore('settings', {
       } finally {
         this.checkingCookie = false
       }
-    },
-
-    // Doulist Import
-    async triggerDoulistImportAction(url, tag) {
-      await triggerDoulistImport(url, tag)
-      await this.loadDoulistImportProgress()
-    },
-
-    async loadDoulistImportProgress() {
-      const { data } = await fetchDoulistImportProgress()
-      this.doulistImportProgress = data
     },
 
     // IMDb

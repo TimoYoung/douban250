@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import CrawlLog
-from app.schemas.crawl import CrawlLogInfo, CrawlTriggerResponse, DoulistImportRequest
+from app.schemas.crawl import CrawlLogInfo, CrawlTriggerResponse
 from app.services.crawler import crawl_progress
 from app.services.metadata import meta_progress, get_meta_progress
 
@@ -150,40 +150,6 @@ def _run_metadata(force: bool = False):
     from app.services.metadata import run_backfill
     try:
         run_backfill(force=force)
-    except Exception:
-        pass
-
-
-# --- Doulist import ---
-
-@router.post("/doulist", response_model=CrawlTriggerResponse)
-def trigger_doulist_import(req: DoulistImportRequest):
-    from app.services.doulist_importer import doulist_import_progress
-    if doulist_import_progress["active"]:
-        raise HTTPException(status_code=409, detail="A doulist import is already running")
-    if crawl_progress["active"]:
-        raise HTTPException(status_code=409, detail="A crawl is already running")
-
-    if not req.url.strip():
-        raise HTTPException(status_code=400, detail="URL 不能为空")
-    if not req.tag.strip():
-        raise HTTPException(status_code=400, detail="版本日期不能为空")
-
-    thread = threading.Thread(target=_run_doulist_import, args=(req.url.strip(), req.tag.strip()), daemon=True)
-    thread.start()
-    return CrawlTriggerResponse(message="Doulist import triggered", triggered=True)
-
-
-@router.get("/doulist/progress")
-def get_doulist_import_progress():
-    from app.services.doulist_importer import get_progress
-    return get_progress()
-
-
-def _run_doulist_import(url: str, tag: str):
-    from app.services.doulist_importer import import_doulist
-    try:
-        import_doulist(url, tag)
     except Exception:
         pass
 

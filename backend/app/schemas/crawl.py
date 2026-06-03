@@ -18,8 +18,3 @@ class CrawlLogInfo(BeijingBaseModel):
 class CrawlTriggerResponse(BeijingBaseModel):
     message: str
     triggered: bool
-
-
-class DoulistImportRequest(BeijingBaseModel):
-    url: str
-    tag: str

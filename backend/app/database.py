@@ -72,6 +72,15 @@ def _run_migrations(db):
         db.execute(text("ALTER TABLE versions_new RENAME TO versions"))
         db.commit()
 
+    # 检查 movies 表是否有 last_meta_fetch 列
+    result = db.execute(text("PRAGMA table_info(movies)"))
+    columns = {row[1] for row in result}
+    if 'last_meta_fetch' not in columns:
+        db.execute(text(
+            "ALTER TABLE movies "
+            "ADD COLUMN last_meta_fetch DATETIME"))
+        db.commit()
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)

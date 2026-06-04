@@ -2,7 +2,10 @@
 Metadata backfill service: periodically fetch missing metadata for all movies.
 """
 import logging
+import random
 import re
+import time
+from datetime import timedelta
 
 from bs4 import BeautifulSoup
 from sqlalchemy import or_
@@ -34,18 +37,27 @@ def get_meta_progress() -> dict:
 def _needs_metadata_query():
     """SQLAlchemy filter for movies needing metadata backfill.
 
-    Required fields must be non-empty. detail_fetched is ignored for these
-    since they should always be present regardless of source availability.
-    Also includes movies with valid douban_id but missing imdb_id
-    (only if detail_fetched is False, to avoid re-fetching known-complete movies).
+    Selects movies with missing fields that haven't been fetched recently
+    (within 7 days). Successfully fetched movies are skipped even if some
+    fields are empty — that means the source genuinely has no data for them.
     """
-    return (
-        or_(Movie.director.is_(None), Movie.director == "") |
-        or_(Movie.genre.is_(None), Movie.genre == "") |
-        or_(Movie.country.is_(None), Movie.country == "") |
-        or_(Movie.summary.is_(None), Movie.summary == "") |
-        or_(Movie.poster_path.is_(None), Movie.poster_path == "") |
-        or_(Movie.douban_url.is_(None), Movie.douban_url == "") |
+    cutoff = now() - timedelta(days=7)
+    return or_(
+        # 缺少字段且从未获取过，或距上次获取超过 7 天
+        (
+            (
+                or_(Movie.director.is_(None), Movie.director == "") |
+                or_(Movie.genre.is_(None), Movie.genre == "") |
+                or_(Movie.country.is_(None), Movie.country == "") |
+                or_(Movie.summary.is_(None), Movie.summary == "") |
+                or_(Movie.poster_path.is_(None), Movie.poster_path == "") |
+                or_(Movie.douban_url.is_(None), Movie.douban_url == "") |
+                Movie.rating.is_(None) |
+                Movie.rating_count.is_(None)
+            ) &
+            (Movie.last_meta_fetch.is_(None) | (Movie.last_meta_fetch < cutoff))
+        ),
+        # 有 douban_id 但缺少 imdb_id 且未标记已获取
         (Movie.douban_id.isnot(None) & Movie.imdb_id.is_(None) & Movie.detail_fetched.isnot(True))
     )
 
@@ -99,6 +111,13 @@ def _save_info_field(info: dict, key: str, val: str):
 def parse_detail_page(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     info = {}
+
+    # 从 h1 提取干净中文标题
+    title_el = soup.select_one('h1 span[property="v:itemreviewed"]')
+    if title_el:
+        clean_title = title_el.get_text(strip=True)
+        if clean_title:
+            info["title"] = clean_title
 
     info_div = soup.select_one("#info")
     if info_div:
@@ -178,6 +197,24 @@ def parse_detail_page(html: str) -> dict:
     if poster:
         info["poster_url"] = poster.get("src", "")
 
+    # Rating
+    rating_el = soup.select_one('strong.rating_num[property="v:average"]')
+    if rating_el:
+        try:
+            r = float(rating_el.text.strip())
+            if r > 0:
+                info["rating"] = r
+        except (ValueError, TypeError):
+            pass
+
+    # Rating count
+    votes_el = soup.select_one('span[property="v:votes"]')
+    if votes_el:
+        try:
+            info["rating_count"] = int(votes_el.text.strip())
+        except (ValueError, TypeError):
+            pass
+
     # Extract IMDb ID from #info section
     info_div_for_imdb = soup.select_one("#info")
     if info_div_for_imdb:
@@ -253,6 +290,7 @@ def run_backfill(force: bool = False) -> dict:
                 # Skip movies with non-numeric douban_id (e.g. placeholders)
                 if movie.douban_id and not movie.douban_id.isdigit():
                     logger.info(f"  Skipping (non-numeric douban_id: {movie.douban_id})")
+                    movie.last_meta_fetch = now()  # 标记已处理，避免重复选中
                     meta_progress["failed"] += 1
                     continue
 
@@ -261,7 +299,13 @@ def run_backfill(force: bool = False) -> dict:
                 info = parse_detail_page(html)
 
                 updated = False
-                for field in ["director", "genre", "country", "year", "tagline", "summary", "douban_url"]:
+
+                # 标题：详情页标题始终为准（修正 abstract API 拼接格式）
+                if info.get("title") and info["title"] != movie.title:
+                    movie.title = info["title"]
+                    updated = True
+
+                for field in ["director", "genre", "country", "year", "tagline", "summary", "douban_url", "rating", "rating_count"]:
                     if info.get(field) and not getattr(movie, field):
                         setattr(movie, field, info[field])
                         updated = True
@@ -285,12 +329,21 @@ def run_backfill(force: bool = False) -> dict:
                     except Exception:
                         pass
 
-                # Only mark detail_fetched when all required fields are present
-                if movie.director and movie.genre and movie.country and movie.summary and movie.poster_path and movie.douban_url:
+                # 成功获取页面后标记时间戳，无论是否所有字段都有值
+                # 空字段视为来源确实没有该数据，7 天内不重试
+                movie.last_meta_fetch = now()
+                if updated and not movie.detail_fetched:
                     movie.detail_fetched = True
                 movie.updated_at = now()
                 meta_progress["updated"] += 1
 
+            except RuntimeError as e:
+                logger.warning(f"  反爬封锁: {e}")
+                meta_progress["failed"] += 1
+                # 被封锁后长冷却，避免持续触发
+                cooldown = 30 + random.random() * 30
+                logger.info(f"  冷却 {cooldown:.0f}s 后继续...")
+                time.sleep(cooldown)
             except Exception as e:
                 logger.warning(f"  Failed: {e}")
                 meta_progress["failed"] += 1

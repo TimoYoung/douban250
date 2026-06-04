@@ -38,3 +38,5 @@ raw/
 
 # backup
 *.tar.gz
+# Backups
+backups/

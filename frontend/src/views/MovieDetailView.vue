@@ -22,7 +22,7 @@
             <div v-if="movie.cast_members && movie.cast_members.length">
               <strong>主演：</strong>{{ movie.cast_members.join(', ') }}
             </div>
-            <div v-if="movie.rating"><strong>豆瓣评分：</strong>{{ movie.rating }}</div>
+            <div v-if="movie.rating"><strong>豆瓣评分：</strong>{{ movie.rating }}<span v-if="movie.rating_count" style="color: #a1a1aa; font-size: 12px; margin-left: 4px;">（{{ movie.rating_count.toLocaleString() }}人评价）</span></div>
             <div v-if="movie.current_ranks && movie.current_ranks.length">
               <div v-for="cr in movie.current_ranks" :key="cr.source" class="current-rank-item">
                 <strong>{{ cr.source === 'imdb' ? 'IMDb' : '豆瓣' }}排名：</strong>

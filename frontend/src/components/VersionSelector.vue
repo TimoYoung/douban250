@@ -10,48 +10,27 @@
       >{{ sourceLabels[s] || s }}</button>
     </div>
     <label>{{ label }}</label>
-    <select :value="modelValue" @change="$emit('update:modelValue', $event.target.value === '' ? null : Number($event.target.value))">
-      <option v-if="defaultOption" value="">{{ defaultOption }}</option>
-      <optgroup v-for="(group, year) in groupedVersions" :key="year" :label="year + '年'">
-        <option v-for="v in group" :key="v.id" :value="v.id">
-          {{ v.tag }} ({{ v.movie_count }}部)
-        </option>
-      </optgroup>
-    </select>
+    <VersionDropdown
+      :versions="versions"
+      :modelValue="modelValue"
+      @update:modelValue="$emit('update:modelValue', $event)"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import VersionDropdown from './VersionDropdown.vue'
 
-const props = defineProps({
+defineProps({
   versions: { type: Array, default: () => [] },
   modelValue: { type: [Number, null], default: null },
-  defaultOption: { type: String, default: '' },
   label: { type: String, default: '版本：' },
   sourceFilter: { type: String, default: 'douban' },
   sources: { type: Array, default: () => [] },
 })
 defineEmits(['update:modelValue', 'update:sourceFilter'])
 
-const sourceLabels = {
-  douban: '豆瓣',
-  imdb: 'IMDb',
-}
-
-const groupedVersions = computed(() => {
-  const groups = {}
-  for (const v of props.versions) {
-    const year = v.tag?.slice(0, 4) || '未知'
-    if (!groups[year]) groups[year] = []
-    groups[year].push(v)
-  }
-  const sorted = {}
-  for (const year of Object.keys(groups).sort((a, b) => b.localeCompare(a))) {
-    sorted[year] = groups[year].sort((a, b) => b.tag.localeCompare(a.tag))
-  }
-  return sorted
-})
+const sourceLabels = { douban: '豆瓣', imdb: 'IMDb' }
 </script>
 
 <style scoped>
@@ -63,10 +42,7 @@ const groupedVersions = computed(() => {
   flex-wrap: wrap;
 }
 
-.source-tabs {
-  display: flex;
-  gap: 0;
-}
+.source-tabs { display: flex; gap: 0; }
 
 .source-tab {
   padding: 4px 12px;
@@ -78,37 +54,10 @@ const groupedVersions = computed(() => {
   color: #71717a;
   transition: all 0.15s;
 }
+.source-tab:first-child { border-radius: 6px 0 0 6px; }
+.source-tab:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.source-tab.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+.source-tab:hover:not(.active) { background: #fafafa; color: #3f3f46; }
 
-.source-tab:first-child {
-  border-radius: 6px 0 0 6px;
-}
-
-.source-tab:last-child {
-  border-radius: 0 6px 6px 0;
-  border-left: none;
-}
-
-.source-tab.active {
-  background: #6366f1;
-  color: #fff;
-  border-color: #6366f1;
-}
-
-.source-tab:hover:not(.active) {
-  background: #fafafa;
-  color: #3f3f46;
-}
-
-.version-selector label {
-  font-size: 14px;
-  color: #666;
-}
-
-.version-selector select {
-  padding: 6px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  font-size: 14px;
-  min-width: 200px;
-}
+.version-selector label { font-size: 14px; color: #666; }
 </style>

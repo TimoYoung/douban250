@@ -13,6 +13,7 @@ import re
 import time
 import random
 import logging
+import threading
 
 import httpx
 from sqlalchemy.orm import Session
@@ -289,42 +290,70 @@ def _douban_search_by_imdb_id(
     return None
 
 
-def _douban_verify(client: httpx.Client, douban_id: str) -> str | None:
-    """通过 abstract API 验证 douban_id，返回 title 或 None。"""
+def _parse_cn_title(raw: str) -> str:
+    """从 subject_abstract 的拼接标题中提取干净中文名。
+
+    输入格式: "中文名 英文名\\u200e(年份)" 或 "中文名\\u200e(年份)"
+    返回: "中文名"
+    """
+    t = raw.replace('‎', '').strip()
+    # 去掉末尾 (年份)
+    t = re.sub(r'\s*\(\d{4}\)\s*$', '', t).strip()
+    # 从第一个拉丁字母处截断（中文标题不会以拉丁字母开头）
+    m = re.search(r'[A-Za-z]', t)
+    if m:
+        t = t[:m.start()].strip()
+    # 去掉尾部残留的数字和标点（如 "三傻大闹宝莱坞 3" → "三傻大闹宝莱坞"）
+    t = re.sub(r'[\s\d:：\-/]+$', '', t).strip()
+    return t or raw.strip()
+
+
+def _douban_verify(
+    client: httpx.Client,
+    douban_id: str,
+) -> tuple[str, str | None] | None:
+    """通过 abstract API 验证 douban_id，返回 (clean_title, imdb_id) 或 None。
+
+    仅使用 subject_abstract 接口（轻量、不易触发反爬），
+    从拼接标题中解析出干净中文名，不额外请求详情页。
+    """
     try:
         resp = client.get(
             f'https://movie.douban.com/j/subject_abstract'
             f'?subject_id={douban_id}')
-        if resp.status_code == 200:
-            t = resp.json().get('subject', {}).get('title', '')
-            if t and t != '未知':
-                return t
+        if resp.status_code != 200:
+            return None
+        data = resp.json().get('subject', {})
+        raw_title = data.get('title', '')
+        if not raw_title or raw_title == '未知':
+            return None
+        clean_title = _parse_cn_title(raw_title)
+        return (clean_title, None)
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _fetch_imdb_id_from_douban_detail(
     client: httpx.Client, douban_id: str
-) -> str | None:
-    """访问豆瓣详情页，提取页面中的 IMDb ID。"""
+) -> tuple[str | None, str | None]:
+    """访问豆瓣详情页，返回 (imdb_id, page_text)。"""
     url = f'https://movie.douban.com/subject/{douban_id}/'
     for attempt in range(settings.max_retries):
         try:
             resp = client.get(url)
             if resp.status_code != 200:
-                return None
+                return (None, None)
             text = resp.text
             _check_blocked(text, url)
             # 格式1: 链接形式 imdb.com/title/ttXXXXXXX
             m = re.search(r'imdb\.com/title/(tt\d+)', text)
             if m:
-                return m.group(1)
+                return (m.group(1), text)
             # 格式2: 纯文本形式 IMDb:</span> ttXXXXXXX
             m = re.search(r'IMDb:</span>\s*(tt\d+)', text)
             if m:
-                return m.group(1)
-            return None
+                return (m.group(1), text)
+            return (None, text)
         except RuntimeError:
             raise  # 反爬封锁直接抛出
         except Exception as e:
@@ -333,7 +362,7 @@ def _fetch_imdb_id_from_douban_detail(
                 time.sleep(settings.douban_request_delay * (attempt + 1))
             else:
                 logger.error(f"详情页请求失败: {url} - {e}")
-    return None
+    return (None, None)
 
 
 def _search_douban_candidates(
@@ -457,7 +486,7 @@ def crawl_imdb_top250(db_factory) -> dict:
                     _imdb_progress["douban_searched"] += 1
 
                     if douban_id:
-                        # 搜索页返回了结果，用 abstract API 验证标题存在
+                        # 搜索页返回了结果，访问详情页验证并获取干净标题
                         existing = db.query(Movie).filter(
                             Movie.douban_id == douban_id).first()
                         if existing:
@@ -465,17 +494,16 @@ def crawl_imdb_top250(db_factory) -> dict:
                             if imdb_id and not movie.imdb_id:
                                 movie.imdb_id = imdb_id
                         else:
-                            cn_title = _douban_verify(
+                            result = _douban_verify(
                                 douban_client, douban_id)
                             _douban_delay()
-                            if cn_title:
+                            if result:
+                                cn_title, _detail_imdb_id = result
                                 movie = Movie(
                                     douban_id=douban_id,
                                     imdb_id=imdb_id,
                                     title=cn_title,
                                     original_title=imdb_title,
-                                    year=year,
-                                    rating=mdata.get("rating"),
                                 )
                                 db.add(movie)
                                 db.flush()
@@ -497,8 +525,9 @@ def crawl_imdb_top250(db_factory) -> dict:
 
                         for cand in candidates:
                             try:
-                                detail_imdb_id = _fetch_imdb_id_from_douban_detail(
-                                    douban_client, cand['id'])
+                                detail_imdb_id, _ = \
+                                    _fetch_imdb_id_from_douban_detail(
+                                        douban_client, cand['id'])
                             except RuntimeError as e:
                                 logger.warning(f"详情页验证失败: {e}")
                                 detail_imdb_id = None
@@ -526,16 +555,15 @@ def crawl_imdb_top250(db_factory) -> dict:
                                 if imdb_id and not movie.imdb_id:
                                     movie.imdb_id = imdb_id
                             else:
-                                cn_title = _douban_verify(
+                                result = _douban_verify(
                                     douban_client, did)
                                 _douban_delay()
+                                cn_title = result[0] if result else None
                                 movie = Movie(
                                     douban_id=did,
                                     imdb_id=imdb_id,
                                     title=cn_title or matched_candidate['title'],
                                     original_title=imdb_title,
-                                    year=year,
-                                    rating=mdata.get("rating"),
                                 )
                                 db.add(movie)
                                 db.flush()
@@ -703,8 +731,33 @@ def crawl_imdb_top250(db_factory) -> dict:
             douban_client.close()
             db.close()
 
+        # 爬取完成后自动触发元数据补全（从详情页获取干净中文标题等）
+        if _imdb_progress.get("status") == "done":
+            _trigger_metadata_backfill()
+
     except Exception as e:
         logger.exception("IMDb crawl failed")
         _update_progress(status="error", message=f"爬取失败: {e}")
 
     return _imdb_progress
+
+
+def _trigger_metadata_backfill():
+    """在后台线程启动元数据补全，用于获取干净中文标题等。"""
+    from app.services.metadata import run_backfill, meta_progress
+
+    if meta_progress.get("active"):
+        logger.info("Metadata backfill already active, skipping auto-trigger")
+        return
+
+    def _run():
+        try:
+            logger.info("Auto-triggering metadata backfill after IMDb crawl...")
+            result = run_backfill()
+            logger.info(f"Metadata backfill completed: {result}")
+        except Exception as e:
+            logger.error(f"Metadata backfill failed: {e}")
+
+    thread = threading.Thread(target=_run, daemon=True, name="meta-backfill")
+    thread.start()
+    logger.info("Metadata backfill thread started")

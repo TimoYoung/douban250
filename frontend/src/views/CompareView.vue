@@ -13,13 +13,11 @@
               <button :class="{ active: sourceA === 'imdb' }" @click="setSourceA('imdb')">IMDb</button>
             </div>
           </div>
-          <select v-model="versionAId" @change="onSelectChange">
-            <optgroup v-for="(versions, year) in versionsA" :key="year" :label="year + '年'">
-              <option v-for="v in versions" :key="v.id" :value="v.id">
-                {{ v.tag }}（{{ v.movie_count }}部）
-              </option>
-            </optgroup>
-          </select>
+          <VersionDropdown
+            :versions="versionsAList"
+            v-model="versionAId"
+            @update:modelValue="onSelectChange"
+          />
         </div>
 
         <span class="arrow">→</span>
@@ -34,20 +32,12 @@
               <button :class="{ active: !usePrev && sourceB === 'imdb' }" @click="setSourceB('imdb')">IMDb</button>
             </div>
           </div>
-          <select v-model="versionBId" :disabled="usePrev" @change="loadCompare">
-            <template v-if="usePrev">
-              <option :value="computedPrevId">
-                {{ computedPrevLabel }}
-              </option>
-            </template>
-            <template v-else>
-              <optgroup v-for="(versions, year) in versionsB" :key="year" :label="year + '年'">
-                <option v-for="v in versions" :key="v.id" :value="v.id">
-                  {{ v.tag }}（{{ v.movie_count }}部）
-                </option>
-              </optgroup>
-            </template>
-          </select>
+          <VersionDropdown
+            :versions="versionsBList"
+            v-model="versionBId"
+            :disabled="usePrev"
+            @update:modelValue="loadCompare"
+          />
         </div>
       </div>
     </div>
@@ -188,6 +178,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useVersionsStore } from '../stores/versions.js'
 import { fetchCompare } from '../api/index.js'
+import VersionDropdown from '../components/VersionDropdown.vue'
 
 const router = useRouter()
 const versionsStore = useVersionsStore()
@@ -202,24 +193,17 @@ const versionBId = ref(null)
 const rawData = ref(null)
 const loading = ref(false)
 
-// Versions filtered by source, grouped by year (descending)
-function versionsForSource(src) {
-  const groups = {}
-  for (const v of versionsStore.versions) {
-    if ((v.source || 'douban') !== src) continue
-    const year = v.tag?.slice(0, 4) || '未知'
-    if (!groups[year]) groups[year] = []
-    groups[year].push(v)
-  }
-  const sorted = {}
-  for (const year of Object.keys(groups).sort((a, b) => b.localeCompare(a))) {
-    sorted[year] = [...groups[year]].sort((a, b) => b.tag.localeCompare(a.tag))
-  }
-  return sorted
-}
-
-const versionsA = computed(() => versionsForSource(sourceA.value))
-const versionsB = computed(() => versionsForSource(sourceB.value))
+// Flat version list filtered by source (tag descending)
+const versionsAList = computed(() =>
+  versionsStore.versions
+    .filter(v => (v.source || 'douban') === sourceA.value)
+    .sort((a, b) => b.tag.localeCompare(a.tag))
+)
+const versionsBList = computed(() =>
+  versionsStore.versions
+    .filter(v => (v.source || 'douban') === sourceB.value)
+    .sort((a, b) => b.tag.localeCompare(a.tag))
+)
 
 // Flat sorted list per source (tag descending = newest first)
 function sortedBySource(src) {
@@ -454,22 +438,6 @@ function goDetail(movie) {
 .source-toggle button:last-child { border-radius: 0 5px 5px 0; border-left: none; }
 .source-toggle button.active { background: #6366f1; color: #fff; border-color: #6366f1; }
 .source-toggle button:hover:not(.active) { background: #fafafa; color: #3f3f46; }
-
-.selector-group select {
-  padding: 8px 12px;
-  border: 1px solid #e4e4e7;
-  border-radius: 8px;
-  font-size: 13px;
-  background: #fff;
-  cursor: pointer;
-  width: 100%;
-}
-
-.selector-group select:disabled {
-  background: #f9fafb;
-  color: #6b7280;
-  cursor: default;
-}
 
 .selector-group select:focus {
   outline: none;

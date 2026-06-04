@@ -25,6 +25,7 @@ class Movie(Base):
     poster_path = Column(String(500))
     douban_url = Column(String(500))
     detail_fetched = Column(Boolean, default=False)  # True if detail page was successfully parsed
+    last_meta_fetch = Column(DateTime(timezone=True), nullable=True)  # 上次成功获取元数据的时间
     created_at = Column(DateTime(timezone=True), default=now)
     updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
 

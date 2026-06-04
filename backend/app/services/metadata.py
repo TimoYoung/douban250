@@ -112,12 +112,14 @@ def parse_detail_page(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     info = {}
 
-    # 从 h1 提取干净中文标题
-    title_el = soup.select_one('h1 span[property="v:itemreviewed"]')
-    if title_el:
-        clean_title = title_el.get_text(strip=True)
-        if clean_title:
-            info["title"] = clean_title
+    # 从 <title> 标签提取干净中文标题（格式: "中文名 (豆瓣)"）
+    head_title = soup.find("title")
+    if head_title:
+        t = head_title.get_text(strip=True)
+        # 去掉末尾 " (豆瓣)" 或 " 电影 (豆瓣)" 等后缀
+        t = re.sub(r'\s*(?:电影|电视剧|综艺|纪录片)?\s*\(豆瓣\)\s*$', '', t).strip()
+        if t:
+            info["title"] = t
 
     info_div = soup.select_one("#info")
     if info_div:
@@ -247,8 +249,13 @@ def _needs_metadata(movie: Movie, force: bool = False) -> bool:
     )
 
 
-def run_backfill(force: bool = False) -> dict:
-    """Fetch missing metadata for all movies that need it."""
+def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
+    """Fetch missing metadata for all movies that need it.
+
+    mode:
+      - 'incremental': only fetch movies with missing fields (default)
+      - 'full': refetch all movies, always update title/rating/rating_count
+    """
     db = SessionLocal()
     log = CrawlLog(
         job_type="metadata",
@@ -261,7 +268,14 @@ def run_backfill(force: bool = False) -> dict:
 
     try:
         total_movies = db.query(Movie).count()
-        if force:
+        if mode == "full":
+            to_fetch = db.query(Movie).filter(
+                Movie.douban_id.isnot(None),
+                Movie.douban_id != "",
+            ).all()
+            # 过滤掉非数字 douban_id
+            to_fetch = [m for m in to_fetch if m.douban_id and m.douban_id.isdigit()]
+        elif force:
             to_fetch = db.query(Movie).all()
         else:
             to_fetch = db.query(Movie).filter(_needs_metadata_query()).all()
@@ -273,7 +287,7 @@ def run_backfill(force: bool = False) -> dict:
             "updated": 0,
             "failed": 0,
             "current_movie": "",
-            "message": f"开始补全 {len(to_fetch)} 部电影的元数据...",
+            "message": f"开始{'全量覆盖' if mode == 'full' else '补全'} {len(to_fetch)} 部电影的元数据...",
         })
 
         logger.info(f"Metadata backfill: {len(to_fetch)}/{total_movies} movies need data")
@@ -305,7 +319,16 @@ def run_backfill(force: bool = False) -> dict:
                     movie.title = info["title"]
                     updated = True
 
-                for field in ["director", "genre", "country", "year", "tagline", "summary", "douban_url", "rating", "rating_count"]:
+                # 评分和打分人数：full 模式下始终覆盖
+                for field in ["rating", "rating_count"]:
+                    val = info.get(field)
+                    if val and (mode == "full" or not getattr(movie, field)):
+                        if getattr(movie, field) != val:
+                            setattr(movie, field, val)
+                            updated = True
+
+                # 其他字段：仅填充空值
+                for field in ["director", "genre", "country", "year", "tagline", "summary", "douban_url"]:
                     if info.get(field) and not getattr(movie, field):
                         setattr(movie, field, info[field])
                         updated = True

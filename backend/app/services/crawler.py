@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -183,6 +184,11 @@ def crawl_top250() -> dict:
 
         crawl_progress.update({"phase": "done", "active": False, "message": "爬取完成"})
         logger.info(f"Top 250 crawl completed: {result}")
+
+        # 新版本创建后自动触发增量元数据补全
+        if result.get("new_version"):
+            _trigger_metadata_backfill()
+
         return result
 
     except Exception as e:
@@ -195,6 +201,26 @@ def crawl_top250() -> dict:
         raise
     finally:
         db.close()
+
+
+def _trigger_metadata_backfill():
+    """在后台线程启动增量元数据补全。"""
+    from app.services.metadata import run_backfill, meta_progress
+
+    if meta_progress.get("active"):
+        logger.info("Metadata backfill already active, skipping auto-trigger")
+        return
+
+    def _run():
+        try:
+            logger.info("Auto-triggering metadata backfill after Douban crawl...")
+            result = run_backfill()
+            logger.info(f"Metadata backfill completed: {result}")
+        except Exception as e:
+            logger.error(f"Metadata backfill failed: {e}")
+
+    threading.Thread(target=_run, daemon=True, name="meta-backfill").start()
+    logger.info("Metadata backfill thread started")
 
 
 def _create_version_if_changed(db: Session, movie_objects: list) -> dict:

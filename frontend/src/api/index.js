@@ -91,8 +91,8 @@ export function fetchWatched() {
 }
 
 // Metadata backfill
-export function triggerMetadataBackfill() {
-  return api.post('/crawl/metadata')
+export function triggerMetadataBackfill(mode = 'incremental') {
+  return api.post('/crawl/metadata', null, { params: { mode } })
 }
 
 export function fetchMetadataProgress() {

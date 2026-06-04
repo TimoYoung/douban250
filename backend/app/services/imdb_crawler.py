@@ -731,8 +731,8 @@ def crawl_imdb_top250(db_factory) -> dict:
             douban_client.close()
             db.close()
 
-        # 爬取完成后自动触发元数据补全（从详情页获取干净中文标题等）
-        if _imdb_progress.get("status") == "done":
+        # 新版本创建后自动触发增量元数据补全（从详情页获取干净中文标题等）
+        if _imdb_progress.get("new_version"):
             _trigger_metadata_backfill()
 
     except Exception as e:

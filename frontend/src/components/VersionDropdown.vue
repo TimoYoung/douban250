@@ -8,18 +8,18 @@
       <div v-if="open && !disabled" class="vd-panel">
         <div class="vd-scroll">
           <div
-            v-for="(group, year) in grouped"
+            v-for="([year, versions]) in grouped"
             :key="year"
             class="vd-year"
           >
             <div class="vd-year-header" @click="toggleYear(year)">
               <span class="vd-year-arrow" :class="{ expanded: expandedYears.has(year) }">▸</span>
               {{ year }}年
-              <span class="vd-year-count">({{ group.length }})</span>
+              <span class="vd-year-count">({{ versions.length }})</span>
             </div>
             <div v-if="expandedYears.has(year)" class="vd-items">
               <div
-                v-for="v in group"
+                v-for="v in versions"
                 :key="v.id"
                 class="vd-option"
                 :class="{ selected: modelValue === v.id }"
@@ -30,7 +30,7 @@
             </div>
           </div>
         </div>
-        <div v-if="Object.keys(grouped).length > 1" class="vd-footer" @click="toggleAll">
+        <div v-if="grouped.length > 1" class="vd-footer" @click="toggleAll">
           {{ allExpanded ? '收起旧版' : '显示全部' }}
         </div>
       </div>
@@ -62,15 +62,16 @@ const grouped = computed(() => {
     if (!groups[year]) groups[year] = []
     groups[year].push(v)
   }
-  const sorted = {}
-  for (const year of Object.keys(groups).sort((a, b) => b.localeCompare(a))) {
-    sorted[year] = groups[year].sort((a, b) => b.tag.localeCompare(a.tag))
-  }
-  return sorted
+  const years = Object.keys(groups).sort((a, b) => {
+    if (a === '未知') return 1
+    if (b === '未知') return -1
+    return Number(b) - Number(a)
+  })
+  return years.map(year => [year, groups[year].sort((a, b) => b.tag.localeCompare(a.tag))])
 })
 
 function initExpanded() {
-  const years = Object.keys(grouped.value)
+  const years = grouped.value.map(([y]) => y)
   expandedYears.value = new Set(years.filter(y => y === currentYear))
   allExpanded.value = false
 }
@@ -86,14 +87,14 @@ function toggleYear(year) {
   if (s.has(year)) s.delete(year)
   else s.add(year)
   expandedYears.value = s
-  allExpanded.value = Object.keys(grouped.value).every(y => s.has(y))
+  allExpanded.value = grouped.value.every(([y]) => s.has(y))
 }
 
 function toggleAll() {
   if (allExpanded.value) {
     initExpanded()
   } else {
-    expandedYears.value = new Set(Object.keys(grouped.value))
+    expandedYears.value = new Set(grouped.value.map(([y]) => y))
     allExpanded.value = true
   }
 }

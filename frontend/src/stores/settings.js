@@ -87,8 +87,8 @@ export const useSettingsStore = defineStore('settings', {
       await this.loadUserWatchedStatus()
     },
 
-    async triggerMetadataBackfill() {
-      await triggerMetadataBackfill()
+    async triggerMetadataBackfill(mode = 'incremental') {
+      await triggerMetadataBackfill(mode)
       await this.loadMetadataProgress()
     },
 

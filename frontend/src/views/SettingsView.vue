@@ -267,9 +267,14 @@
               <button v-if="settingsStore.metadataCron !== savedMetaCron" class="cron-save" @click="onSaveCron('meta')">保存</button>
               <span v-else class="cron-hint">默认 0 5 * * 0（每周日凌晨5点）</span>
             </div>
-            <button class="btn btn-outline w-full" :disabled="settingsStore.metadataProgress?.active || isCrawling" @click="onTriggerMeta">
-              {{ settingsStore.metadataProgress?.active ? '补全中...' : '立即补全元数据' }}
-            </button>
+            <div class="btn-row">
+              <button class="btn btn-dark flex-1" :disabled="settingsStore.metadataProgress?.active || isCrawling" @click="onTriggerMeta('incremental')">
+                {{ settingsStore.metadataProgress?.active ? '补全中...' : '增量补全' }}
+              </button>
+              <button class="btn btn-outline flex-1" :disabled="settingsStore.metadataProgress?.active || isCrawling" @click="onTriggerMeta('full')">
+                全量覆盖
+              </button>
+            </div>
           </div>
         </div>
 
@@ -301,7 +306,7 @@
               </div>
             </div>
             <div class="btn-row">
-              <button class="btn btn-green flex-1" :disabled="isCrawling || !hasUserId" @click="onTriggerUserScrape">增量同步</button>
+              <button class="btn btn-dark flex-1" :disabled="isCrawling || !hasUserId" @click="onTriggerUserScrape">增量同步</button>
               <button class="btn btn-outline flex-1" :disabled="isCrawling || !hasUserId" @click="onTriggerUserScrapeFull">全量同步</button>
             </div>
           </div>
@@ -542,7 +547,7 @@ async function onCheckCookie() { await settingsStore.checkCookie() }
 async function onTriggerCrawl() { await settingsStore.triggerCrawl() }
 async function onTriggerUserScrape() { await settingsStore.triggerUserScrape() }
 async function onTriggerUserScrapeFull() { await settingsStore.triggerUserScrape(true) }
-async function onTriggerMeta() { await settingsStore.triggerMetadataBackfill() }
+async function onTriggerMeta(mode = 'incremental') { await settingsStore.triggerMetadataBackfill(mode) }
 async function onTriggerImdbCrawl() { await settingsStore.triggerImdbCrawl() }
 
 function startEdit(v) { editingId.value = v.id; editTag.value = v.tag }
@@ -738,8 +743,6 @@ async function onDeleteConfirm() {
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-dark { background: #18181b; color: #fff; }
 .btn-dark:hover:not(:disabled) { background: #27272a; }
-.btn-green { background: #10b981; color: #fff; }
-.btn-green:hover:not(:disabled) { background: #059669; }
 .btn-outline { background: transparent; color: #52525b; border: 1px solid #e4e4e7; }
 .btn-outline:hover:not(:disabled) { background: #fafafa; border-color: #d4d4d8; }
 .btn-ghost-sm { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; background: transparent; color: #6366f1; border: 1px solid #e4e4e7; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }

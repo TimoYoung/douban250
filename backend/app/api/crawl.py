@@ -110,16 +110,16 @@ def get_crawl_logs(limit: int = 20, db: Session = Depends(get_db)):
 # --- Metadata backfill ---
 
 @router.post("/metadata", response_model=CrawlTriggerResponse)
-def trigger_metadata_backfill(force: bool = Query(False)):
+def trigger_metadata_backfill(force: bool = Query(False), mode: str = Query("incremental")):
     if meta_progress["active"]:
         raise HTTPException(status_code=409, detail="Metadata backfill is already running")
     if crawl_progress["active"]:
         raise HTTPException(status_code=409, detail="A crawl is already running")
 
-    thread = threading.Thread(target=_run_metadata, args=(force,), daemon=True)
+    thread = threading.Thread(target=_run_metadata, args=(force, mode), daemon=True)
     thread.start()
-    msg = "Metadata backfill triggered (force)" if force else "Metadata backfill triggered"
-    return CrawlTriggerResponse(message=msg, triggered=True)
+    label = "全量覆盖" if mode == "full" else ("强制补全" if force else "增量补全")
+    return CrawlTriggerResponse(message=f"元数据{label}已启动", triggered=True)
 
 
 @router.get("/metadata/progress")
@@ -146,10 +146,10 @@ def check_cookie():
     return check_cookie_valid()
 
 
-def _run_metadata(force: bool = False):
+def _run_metadata(force: bool = False, mode: str = "incremental"):
     from app.services.metadata import run_backfill
     try:
-        run_backfill(force=force)
+        run_backfill(force=force, mode=mode)
     except Exception:
         pass
 

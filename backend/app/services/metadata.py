@@ -62,9 +62,10 @@ def _needs_metadata_query():
     )
 
 
-def check_cookie_valid() -> dict:
+def check_cookie_valid(cookie: str = "") -> dict:
     """Check if the Douban cookie is still valid. Returns {valid, message}."""
-    cookie = _get_cookie()
+    if not cookie:
+        cookie = _get_cookie()
     if not cookie:
         return {"valid": False, "message": "未配置豆瓣 Cookie"}
 

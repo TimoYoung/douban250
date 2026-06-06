@@ -9,16 +9,19 @@ import {
   fetchVersions, deleteVersion, updateVersion,
   fetchPendingMatches, resolvePendingMatch,
   fetchPendingMatchCount,
+  updateMyDoubanSettings,
+  fetchUsers, createUser, updateUser, deleteUser,
+  changePassword,
 } from '../api/index.js'
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
+    // Global settings (admin)
     cronExpression: '0 3 * * 0',
-    doubanUserId: '',
-    doubanCookie: '',
     userScrapeCron: '',
     metadataCron: '0 5 * * 0',
     imdbCron: '',
+    // Status
     crawlStatus: null,
     top250Status: null,
     userWatchedStatus: null,
@@ -35,17 +38,18 @@ export const useSettingsStore = defineStore('settings', {
     pendingMatches: [],
     pendingMatchCount: 0,
     pendingMatchesLoading: false,
+    // User management (admin)
+    users: [],
+    usersLoading: false,
   }),
 
   actions: {
-    // Settings
+    // ── Global settings (admin) ────────────────────────────────────────
     async loadSettings() {
       this.loading = true
       try {
         const { data } = await fetchSettings()
         this.cronExpression = data.cron_expression
-        this.doubanUserId = data.douban_user_id
-        this.doubanCookie = data.douban_cookie || ''
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
         this.imdbCron = data.imdb_cron || ''
@@ -59,15 +63,11 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const { data } = await updateSettings({
           cron_expression: this.cronExpression,
-          douban_user_id: this.doubanUserId,
-          douban_cookie: this.doubanCookie,
           user_scrape_cron: this.userScrapeCron,
           metadata_cron: this.metadataCron,
           imdb_cron: this.imdbCron,
         })
         this.cronExpression = data.cron_expression
-        this.doubanUserId = data.douban_user_id
-        this.doubanCookie = data.douban_cookie || ''
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
         this.imdbCron = data.imdb_cron || ''
@@ -76,7 +76,50 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    // Crawl
+    // ── Per-user douban settings ───────────────────────────────────────
+    async saveMyDoubanSettings(doubanUserId, doubanCookie) {
+      const { data } = await updateMyDoubanSettings({
+        douban_user_id: doubanUserId,
+        douban_cookie: doubanCookie,
+      })
+      return data
+    },
+
+    // ── Password ──────────────────────────────────────────────────────
+    async changeMyPassword(oldPassword, newPassword) {
+      await changePassword(oldPassword, newPassword)
+    },
+
+    // ── User management (admin) ───────────────────────────────────────
+    async loadUsers() {
+      this.usersLoading = true
+      try {
+        const { data } = await fetchUsers()
+        this.users = data
+      } finally {
+        this.usersLoading = false
+      }
+    },
+
+    async addUser(userData) {
+      const { data } = await createUser(userData)
+      this.users.push(data)
+      return data
+    },
+
+    async updateUser(userId, userData) {
+      const { data } = await updateUser(userId, userData)
+      const idx = this.users.findIndex(u => u.id === userId)
+      if (idx !== -1) this.users[idx] = data
+      return data
+    },
+
+    async removeUser(userId) {
+      await deleteUser(userId)
+      this.users = this.users.filter(u => u.id !== userId)
+    },
+
+    // ── Crawl ─────────────────────────────────────────────────────────
     async triggerCrawl() {
       await triggerCrawl()
       await this.loadCrawlStatus()
@@ -137,7 +180,7 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    // IMDb
+    // ── IMDb ──────────────────────────────────────────────────────────
     async triggerImdbCrawl() {
       await triggerImdbCrawl()
       await this.loadImdbProgress()
@@ -148,7 +191,7 @@ export const useSettingsStore = defineStore('settings', {
       this.imdbProgress = data
     },
 
-    // Pending matches
+    // ── Pending matches ───────────────────────────────────────────────
     async loadPendingMatches() {
       this.pendingMatchesLoading = true
       try {
@@ -170,7 +213,6 @@ export const useSettingsStore = defineStore('settings', {
       if (candidateDoubanId) body.candidate_douban_id = candidateDoubanId
       if (manualDoubanId) body.manual_douban_id = manualDoubanId
       const { data } = await resolvePendingMatch(imdbId, body)
-      // 从列表中移除已处理的电影
       this.pendingMatches = this.pendingMatches.filter(m => m.imdb_id !== imdbId)
       this.pendingMatchCount = this.pendingMatches.length
       await this.loadVersions()
@@ -178,13 +220,12 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async finalizeVersion() {
-      // 不再需要，保留兼容
       this.pendingMatches = []
       this.pendingMatchCount = 0
       await this.loadVersions()
     },
 
-    // Versions
+    // ── Versions ──────────────────────────────────────────────────────
     async loadVersions() {
       const { data } = await fetchVersions()
       this.versions = data

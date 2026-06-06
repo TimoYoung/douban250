@@ -12,8 +12,8 @@
       {{ cookieWarning }}
     </div>
 
-    <!-- Section: 版本管理 -->
-    <div class="section">
+    <!-- Section: 版本管理 (admin only) -->
+    <div class="section" v-if="isAdmin">
       <h4 class="section-title">版本管理</h4>
 
       <!-- Create Version: two side-by-side cards -->
@@ -228,8 +228,8 @@
     <div class="section">
       <h4 class="section-title">数据维护</h4>
       <div class="grid-2">
-        <!-- Metadata Backfill -->
-        <div class="card">
+        <!-- Metadata Backfill (admin only) -->
+        <div class="card" v-if="isAdmin">
           <div class="card-pad">
             <div class="card-head">
               <div class="card-icon icon-indigo">
@@ -288,16 +288,32 @@
               <h3>看过列表同步</h3>
             </div>
             <div class="card-body">
-              <p class="status-line" v-if="settingsStore.userWatchedStatus?.status === 'success'">
-                最近一次：{{ formatTime(settingsStore.userWatchedStatus.finished_at) }}
-              </p>
-              <p class="status-line" v-else-if="settingsStore.userWatchedStatus?.status === 'running'">同步中...</p>
-              <p class="status-line status-error" v-else-if="settingsStore.userWatchedStatus?.status === 'failed'">失败：{{ settingsStore.userWatchedStatus.error_message }}</p>
-              <p class="status-line status-muted" v-else>尚未同步</p>
-              <div class="tag-row" v-if="settingsStore.userWatchedStatus?.status === 'success'">
-                <span class="tag">增量同步</span>
-                <span class="tag-meta">{{ settingsStore.userWatchedStatus.movies_found }} 部</span>
+              <!-- Sync progress -->
+              <div v-if="settingsStore.crawlProgress?.active && settingsStore.crawlProgress?.job_type === 'user_watched'" class="crawl-progress">
+                <p class="progress-msg">{{ settingsStore.crawlProgress.message }}</p>
+                <div v-if="settingsStore.crawlProgress.page_total > 0" class="progress-label">
+                  <span>页面进度</span>
+                  <span class="progress-pct accent">{{ Math.round(settingsStore.crawlProgress.page_current / settingsStore.crawlProgress.page_total * 100) }}%</span>
+                </div>
+                <div v-if="settingsStore.crawlProgress.page_total > 0" class="progress-bar-track">
+                  <div class="progress-bar-fill gradient-indigo" :style="{ width: (settingsStore.crawlProgress.page_current / settingsStore.crawlProgress.page_total * 100) + '%' }"></div>
+                </div>
+                <p class="progress-sub" v-if="settingsStore.crawlProgress.movies_found">
+                  已发现 {{ settingsStore.crawlProgress.movies_found }} 部电影
+                </p>
               </div>
+              <!-- Status (when not actively syncing) -->
+              <template v-else>
+                <p class="status-line" v-if="settingsStore.userWatchedStatus?.status === 'success'">
+                  最近一次：{{ formatTime(settingsStore.userWatchedStatus.finished_at) }}
+                </p>
+                <p class="status-line status-error" v-else-if="settingsStore.userWatchedStatus?.status === 'failed'">失败：{{ settingsStore.userWatchedStatus.error_message }}</p>
+                <p class="status-line status-muted" v-else>尚未同步</p>
+                <div class="tag-row" v-if="settingsStore.userWatchedStatus?.status === 'success'">
+                  <span class="tag">增量同步</span>
+                  <span class="tag-meta">{{ settingsStore.userWatchedStatus.movies_found }} 部</span>
+                </div>
+              </template>
               <div class="cron-inline">
                 <label>Cron</label>
                 <input v-model="settingsStore.userScrapeCron" placeholder="留空则不自动同步" class="cron-input" />
@@ -306,48 +322,234 @@
               </div>
             </div>
             <div class="btn-row">
-              <button class="btn btn-dark flex-1" :disabled="isCrawling || !hasUserId" @click="onTriggerUserScrape">增量同步</button>
-              <button class="btn btn-outline flex-1" :disabled="isCrawling || !hasUserId" @click="onTriggerUserScrapeFull">全量同步</button>
+              <button class="btn btn-dark flex-1" :disabled="isCrawling || !hasUserId" @click="onTriggerUserScrape">
+                {{ isUserSyncing ? '同步中...' : '增量同步' }}
+              </button>
+              <button class="btn btn-outline flex-1" :disabled="isCrawling || !hasUserId" @click="onTriggerUserScrapeFull">
+                {{ isUserSyncing ? '同步中...' : '全量同步' }}
+              </button>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Section: 账户与认证 -->
+    <!-- Section: 账户 -->
     <div class="section">
-      <h4 class="section-title">账户与认证</h4>
+      <h4 class="section-title">账户</h4>
+      <div class="grid-2">
+        <!-- Douban Settings -->
+        <div class="card">
+          <div class="card-pad">
+            <div class="card-head">
+              <div class="card-icon icon-sky">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>
+              <h3>豆瓣配置</h3>
+            </div>
+            <div class="card-body">
+              <!-- Hidden inputs to absorb Chrome autofill -->
+              <div style="position:absolute;opacity:0;height:0;overflow:hidden;">
+                <input type="text" autocomplete="username" />
+                <input type="password" autocomplete="new-password" />
+              </div>
+              <div class="field">
+                <label>豆瓣用户 ID</label>
+                <input v-model="myDoubanUserId" placeholder="例如：166675383" autocomplete="off" />
+                <span class="field-hint">配置后可同步您的"看过"列表</span>
+              </div>
+              <div class="field">
+                <label>豆瓣 Cookie</label>
+                <textarea v-model="myDoubanCookie" placeholder="粘贴从浏览器复制的 Cookie 字符串" rows="3" autocomplete="off"></textarea>
+                <div class="field-actions">
+                  <button type="button" class="btn btn-ghost-sm" :disabled="!myDoubanCookie" @click="onCheckMyCookie">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    检查有效性
+                  </button>
+                  <span v-if="settingsStore.cookieCheck" :class="['check-result', settingsStore.cookieCheck.valid ? 'valid' : 'invalid']">
+                    <svg v-if="settingsStore.cookieCheck.valid" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    {{ settingsStore.cookieCheck.valid ? 'Cookie 有效' : settingsStore.cookieCheck.message }}
+                  </span>
+                </div>
+                <span class="field-hint">登录豆瓣 → F12 → Network → 复制 Cookie</span>
+              </div>
+            </div>
+            <button type="button" class="btn btn-dark w-full" @click="onSaveMyDouban" :disabled="accountSaving">
+              {{ accountSaving ? '保存中...' : accountSaved ? '已保存 ✓' : '保存豆瓣配置' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Password Change -->
+        <div class="card">
+          <div class="card-pad">
+            <div class="card-head">
+              <div class="card-icon icon-amber">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <h3>修改密码</h3>
+            </div>
+            <div class="card-body">
+              <div class="field">
+                <label>原密码</label>
+                <input v-model="oldPassword" type="password" placeholder="请输入原密码" />
+              </div>
+              <div class="field">
+                <label>新密码</label>
+                <input v-model="newPassword" type="password" placeholder="请输入新密码" />
+              </div>
+              <div class="field">
+                <label>确认新密码</label>
+                <input v-model="confirmPassword" type="password" placeholder="再次输入新密码" />
+              </div>
+              <p v-if="passwordMsg" class="status-line" style="color: #16a34a;">{{ passwordMsg }}</p>
+              <p v-if="passwordError" class="status-line status-error">{{ passwordError }}</p>
+            </div>
+            <button type="button" class="btn btn-dark w-full" @click="onChangePassword" :disabled="passwordSaving">
+              {{ passwordSaving ? '修改中...' : '修改密码' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section: 用户管理 (admin only) -->
+    <div class="section" v-if="isAdmin">
+      <h4 class="section-title">用户管理</h4>
       <div class="card">
         <div class="card-pad">
-          <div class="field">
-            <label>豆瓣用户 ID</label>
-            <input v-model="settingsStore.doubanUserId" placeholder="例如：166675383" />
-            <span class="field-hint">配置后自动爬取该用户的"看过"列表并与 Top 250 对比</span>
-          </div>
-          <div class="field">
-            <label>豆瓣 Cookie</label>
-            <textarea v-model="settingsStore.doubanCookie" placeholder="粘贴从浏览器复制的 Cookie 字符串" rows="3"></textarea>
-            <div class="field-actions">
-              <button type="button" class="btn btn-ghost-sm" :disabled="!settingsStore.doubanCookie || settingsStore.checkingCookie" @click="onCheckCookie">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                {{ settingsStore.checkingCookie ? '检查中...' : '检查有效性' }}
-              </button>
-              <span v-if="settingsStore.cookieCheck" :class="['check-result', settingsStore.cookieCheck.valid ? 'valid' : 'invalid']">
-                <svg v-if="settingsStore.cookieCheck.valid" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                {{ settingsStore.cookieCheck.valid ? 'Cookie 有效' : settingsStore.cookieCheck.message }}
-              </span>
+          <div class="card-head">
+            <div class="card-icon icon-violet">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             </div>
-            <span class="field-hint">登录豆瓣 → F12 开发者工具 → Network → 复制 Cookie</span>
+            <h3>用户列表</h3>
+            <button class="btn btn-dark" style="margin-left:auto;padding:4px 12px;font-size:12px;" @click="showAddUser = !showAddUser">
+              {{ showAddUser ? '取消' : '+ 新增用户' }}
+            </button>
           </div>
-          <button type="button" class="btn btn-dark" @click="onSave" :disabled="settingsStore.saving">
-            {{ settingsStore.saving ? '保存中...' : '保存设置' }}
-          </button>
+
+          <!-- Add user form -->
+          <div v-if="showAddUser" class="add-user-form">
+            <div class="field-row">
+              <div class="field">
+                <label>用户名</label>
+                <input v-model="newUser.username" placeholder="用户名" />
+              </div>
+              <div class="field">
+                <label>密码</label>
+                <input v-model="newUser.password" type="password" placeholder="密码" />
+              </div>
+              <div class="field">
+                <label>角色</label>
+                <select v-model="newUser.role">
+                  <option value="user">普通用户</option>
+                  <option value="admin">管理员</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field flex-2">
+                <label>豆瓣用户 ID</label>
+                <input v-model="newUser.douban_user_id" placeholder="可选" autocomplete="off" />
+              </div>
+              <div class="field flex-3">
+                <label>豆瓣 Cookie</label>
+                <input v-model="newUser.douban_cookie" placeholder="可选" />
+              </div>
+            </div>
+            <button class="btn btn-dark" @click="onAddUser">创建用户</button>
+          </div>
+
+          <!-- Users table -->
+          <div class="version-table-wrap" v-if="settingsStore.users.length > 0">
+            <table class="version-table">
+              <thead>
+                <tr>
+                  <th>用户名</th>
+                  <th>角色</th>
+                  <th>豆瓣 ID</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
+                  <th class="th-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="u in settingsStore.users" :key="u.id">
+                  <!-- Display row -->
+                  <tr>
+                    <td>{{ u.username }}</td>
+                    <td>
+                      <span class="source-badge" :class="u.role === 'admin' ? 'source-imdb' : 'source-douban'">
+                        {{ u.role === 'admin' ? '管理员' : '用户' }}
+                      </span>
+                    </td>
+                    <td>{{ u.douban_user_id || '-' }}</td>
+                    <td>
+                      <span :class="u.is_active ? 'tag tag-green' : 'tag'">{{ u.is_active ? '启用' : '禁用' }}</span>
+                    </td>
+                    <td class="td-time">{{ u.created_at ? new Date(u.created_at).toLocaleDateString('zh-CN') : '-' }}</td>
+                    <td class="td-actions">
+                      <button class="action-btn" @click="startEditUser(u)" title="编辑">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
+                      <button
+                        v-if="canDeleteUser(u)"
+                        class="action-btn action-delete"
+                        @click="onDeleteUser(u)"
+                        title="删除"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      </button>
+                    </td>
+                  </tr>
+                  <!-- Edit row (inline) -->
+                  <tr v-if="editingUser === u.id" class="edit-row">
+                    <td colspan="6">
+                      <div class="edit-form">
+                        <div class="edit-fields">
+                          <div class="edit-field">
+                            <label>角色</label>
+                            <select v-model="editUserForm.role" :disabled="editingUser === authStore.user?.id">
+                              <option value="user" :disabled="editingUser === authStore.user?.id">普通用户</option>
+                              <option value="admin">管理员</option>
+                            </select>
+                            <span v-if="editingUser === authStore.user?.id" class="field-hint" style="margin:0;font-size:10px;">不能修改自己的角色</span>
+                          </div>
+                          <div class="edit-field">
+                            <label>状态</label>
+                            <select v-model="editUserForm.is_active" :disabled="editingUser === authStore.user?.id">
+                              <option :value="true">启用</option>
+                              <option :value="false" :disabled="editingUser === authStore.user?.id">禁用</option>
+                            </select>
+                            <span v-if="editingUser === authStore.user?.id" class="field-hint" style="margin:0;font-size:10px;">不能禁用自己</span>
+                          </div>
+                          <div class="edit-field">
+                            <label>豆瓣用户 ID</label>
+                            <input v-model="editUserForm.douban_user_id" placeholder="留空不修改" autocomplete="off" />
+                          </div>
+                          <div class="edit-field">
+                            <label>新密码</label>
+                            <input v-model="editUserForm.password" type="password" placeholder="留空不修改" />
+                          </div>
+                        </div>
+                        <div class="edit-actions">
+                          <button class="btn btn-dark" style="height:28px;padding:0 12px;font-size:12px;" @click="onSaveUser(u.id)">保存</button>
+                          <button class="btn btn-outline" style="height:28px;padding:0 12px;font-size:12px;" @click="cancelEditUser">取消</button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="status-line status-muted">暂无用户数据</p>
         </div>
       </div>
     </div>
 
-    <!-- Delete confirmation modal -->
+    <!-- Delete version confirmation modal -->
     <ConfirmModal
       :visible="deleteModal.visible"
       title="删除版本"
@@ -370,18 +572,36 @@
       </p>
       <p style="color: #a1a1aa; font-size: 12px; margin-top: 8px;">此操作不可恢复。</p>
     </ConfirmModal>
+
+    <!-- Delete user confirmation modal -->
+    <ConfirmModal
+      :visible="deleteUserModal.visible"
+      title="删除用户"
+      confirmText="确认删除"
+      :confirmLoading="deleteUserModal.loading"
+      @cancel="deleteUserModal.visible = false"
+      @confirm="onDeleteUserConfirm"
+    >
+      <p v-if="deleteUserModal.user">
+        确定删除用户 <strong>{{ deleteUserModal.user.username }}</strong> 吗？
+      </p>
+      <p style="color: #a1a1aa; font-size: 12px; margin-top: 8px;">此操作不可恢复。该用户的看过列表数据将保留。</p>
+    </ConfirmModal>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useSettingsStore } from '../stores/settings.js'
-import { fetchDeletePreview } from '../api/index.js'
+import { useAuthStore } from '../stores/auth.js'
+import { fetchDeletePreview, fetchCookieCheck } from '../api/index.js'
 import PaginationBar from '../components/PaginationBar.vue'
 import PendingMatches from '../components/PendingMatches.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.isAdmin)
 let progressInterval = null
 
 // Cron saved snapshots (for dirty detection)
@@ -414,8 +634,30 @@ const sourceOptions = computed(() => {
 })
 
 const isCrawling = computed(() => settingsStore.crawlProgress?.active || false)
+const isUserSyncing = computed(() => settingsStore.crawlProgress?.active && settingsStore.crawlProgress?.job_type === 'user_watched')
 const isImdbCrawling = computed(() => settingsStore.imdbProgress?.status === 'running' || false)
-const hasUserId = computed(() => !!settingsStore.doubanUserId)
+const hasUserId = computed(() => !!authStore.user?.douban_user_id)
+
+// Account settings (per-user)
+const myDoubanUserId = ref('')
+const myDoubanCookie = ref('')
+const accountSaving = ref(false)
+const accountSaved = ref(false)
+
+// Password change
+const oldPassword = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const passwordSaving = ref(false)
+const passwordMsg = ref('')
+const passwordError = ref('')
+
+// User management (admin)
+const showAddUser = ref(false)
+const newUser = ref({ username: '', password: '', role: 'user', douban_user_id: '', douban_cookie: '' })
+const editingUser = ref(null)
+const editUserForm = ref({ role: '', is_active: true, password: '', douban_user_id: '' })
+const deleteUserModal = ref({ visible: false, user: null, loading: false })
 
 const imdbDoneMessage = computed(() => {
   const msg = settingsStore.imdbProgress?.message || ''
@@ -431,9 +673,7 @@ const imdbDoneMessage = computed(() => {
 })
 
 const cookieWarning = computed(() => {
-  if (settingsStore.doubanCookie && settingsStore.cookieCheck && !settingsStore.cookieCheck.valid) {
-    return settingsStore.cookieCheck.message
-  }
+  // Cookie warning is now per-user, shown in account section
   return null
 })
 
@@ -494,38 +734,89 @@ function snapshotCrons() {
 }
 
 onMounted(async () => {
-  await Promise.all([
-    settingsStore.loadSettings(),
+  // Clear stale cookie check result from previous user session
+  settingsStore.cookieCheck = null
+
+  // Load user's own douban settings from auth store
+  if (authStore.user) {
+    myDoubanUserId.value = authStore.user.douban_user_id || ''
+    myDoubanCookie.value = authStore.user.douban_cookie || ''
+  }
+
+  // Load all data once
+  const promises = [
     settingsStore.loadVersions(),
-    settingsStore.loadTop250Status(),
     settingsStore.loadUserWatchedStatus(),
     settingsStore.loadCrawlProgress(),
-    settingsStore.loadMetadataProgress(),
-    settingsStore.loadMetadataStatus(),
-    settingsStore.loadCookieCheck(),
     settingsStore.loadImdbProgress(),
-    settingsStore.loadPendingMatchCount(),
-  ])
+  ]
+
+  if (isAdmin.value) {
+    promises.push(
+      settingsStore.loadSettings(),
+      settingsStore.loadTop250Status(),
+      settingsStore.loadMetadataProgress(),
+      settingsStore.loadMetadataStatus(),
+      settingsStore.loadCookieCheck(),
+      settingsStore.loadPendingMatchCount(),
+      settingsStore.loadUsers(),
+    )
+  }
+
+  await Promise.all(promises)
   snapshotCrons()
-  progressInterval = setInterval(async () => {
-    await settingsStore.loadCrawlProgress()
-    await settingsStore.loadMetadataProgress()
-    await settingsStore.loadImdbProgress()
-    await settingsStore.loadPendingMatchCount()
-    if (!settingsStore.crawlProgress?.active && !settingsStore.metadataProgress?.active) {
-      await Promise.all([
-        settingsStore.loadTop250Status(),
-        settingsStore.loadUserWatchedStatus(),
-        settingsStore.loadMetadataStatus(),
-      ])
-    }
-    await settingsStore.loadVersions()
-  }, 2000)
+
+  // If a job was already running when page loaded, start polling
+  if (hasActiveJob()) startPolling()
 })
 
 onUnmounted(() => {
-  if (progressInterval) clearInterval(progressInterval)
+  stopPolling()
 })
+
+function hasActiveJob() {
+  return settingsStore.crawlProgress?.active
+    || settingsStore.metadataProgress?.active
+    || settingsStore.imdbProgress?.status === 'running'
+}
+
+function startPolling() {
+  if (progressInterval) return
+  progressInterval = setInterval(async () => {
+    // Load progress for active jobs
+    await settingsStore.loadCrawlProgress()
+    if (isAdmin.value) await settingsStore.loadMetadataProgress()
+    await settingsStore.loadImdbProgress()
+
+    // If no jobs are active, stop polling and refresh status once
+    if (!hasActiveJob()) {
+      stopPolling()
+      await refreshStatus()
+    }
+  }, 2000)
+}
+
+function stopPolling() {
+  if (progressInterval) {
+    clearInterval(progressInterval)
+    progressInterval = null
+  }
+}
+
+async function refreshStatus() {
+  const promises = [
+    settingsStore.loadVersions(),
+    settingsStore.loadUserWatchedStatus(),
+  ]
+  if (isAdmin.value) {
+    promises.push(
+      settingsStore.loadTop250Status(),
+      settingsStore.loadMetadataStatus(),
+      settingsStore.loadPendingMatchCount(),
+    )
+  }
+  await Promise.all(promises)
+}
 
 function formatTime(t) {
   if (!t) return ''
@@ -533,9 +824,134 @@ function formatTime(t) {
 }
 
 async function onSave() {
+  if (!isAdmin.value) return
   await settingsStore.saveSettings()
   snapshotCrons()
   await settingsStore.loadCookieCheck()
+}
+
+async function onSaveMyDouban() {
+  accountSaving.value = true
+  accountSaved.value = false
+  try {
+    const updated = await settingsStore.saveMyDoubanSettings(myDoubanUserId.value, myDoubanCookie.value)
+    authStore.user.douban_user_id = updated.douban_user_id
+    accountSaved.value = true
+    setTimeout(() => { accountSaved.value = false }, 2000)
+  } catch (e) {
+    alert(e.response?.data?.detail || '保存失败')
+  } finally {
+    accountSaving.value = false
+  }
+}
+
+async function onChangePassword() {
+  passwordMsg.value = ''
+  passwordError.value = ''
+  if (!oldPassword.value || !newPassword.value) {
+    passwordError.value = '请填写原密码和新密码'
+    return
+  }
+  if (newPassword.value !== confirmPassword.value) {
+    passwordError.value = '两次输入的新密码不一致'
+    return
+  }
+  if (newPassword.value.length < 4) {
+    passwordError.value = '新密码至少 4 个字符'
+    return
+  }
+  passwordSaving.value = true
+  try {
+    await settingsStore.changeMyPassword(oldPassword.value, newPassword.value)
+    passwordMsg.value = '密码修改成功'
+    oldPassword.value = ''
+    newPassword.value = ''
+    confirmPassword.value = ''
+  } catch (e) {
+    passwordError.value = e.response?.data?.detail || '修改失败'
+  } finally {
+    passwordSaving.value = false
+  }
+}
+
+async function onCheckMyCookie() {
+  try {
+    const { data } = await fetchCookieCheck()
+    settingsStore.cookieCheck = data
+  } catch (e) {
+    settingsStore.cookieCheck = { valid: false, message: '检查失败' }
+  }
+}
+
+// User management (admin)
+async function onAddUser() {
+  if (!newUser.value.username || !newUser.value.password) {
+    alert('请填写用户名和密码')
+    return
+  }
+  try {
+    await settingsStore.addUser(newUser.value)
+    showAddUser.value = false
+    newUser.value = { username: '', password: '', role: 'user', douban_user_id: '', douban_cookie: '' }
+  } catch (e) {
+    alert(e.response?.data?.detail || '创建失败')
+  }
+}
+
+// Role hierarchy: admin > user
+const ROLE_LEVEL = { admin: 2, user: 1 }
+
+function canDeleteUser(u) {
+  if (u.id === authStore.user?.id) return false  // 不能删自己
+  const myLevel = ROLE_LEVEL[authStore.user?.role] || 0
+  const targetLevel = ROLE_LEVEL[u.role] || 0
+  return myLevel >= targetLevel  // 可以删除同级或更低级的用户
+}
+
+function onDeleteUser(user) {
+  deleteUserModal.value = { visible: true, user, loading: false }
+}
+
+async function onDeleteUserConfirm() {
+  const user = deleteUserModal.value.user
+  if (!user) return
+  deleteUserModal.value.loading = true
+  try {
+    await settingsStore.removeUser(user.id)
+    deleteUserModal.value.visible = false
+  } catch (e) {
+    alert(e.response?.data?.detail || '删除失败')
+  } finally {
+    deleteUserModal.value.loading = false
+  }
+}
+
+function startEditUser(u) {
+  editingUser.value = u.id
+  editUserForm.value = {
+    role: u.role,
+    is_active: u.is_active,
+    password: '',
+    douban_user_id: u.douban_user_id || '',
+  }
+}
+
+function cancelEditUser() {
+  editingUser.value = null
+}
+
+async function onSaveUser(userId) {
+  const payload = {}
+  if (editUserForm.value.role) payload.role = editUserForm.value.role
+  payload.is_active = editUserForm.value.is_active
+  if (editUserForm.value.password) payload.password = editUserForm.value.password
+  if (editUserForm.value.douban_user_id !== undefined) payload.douban_user_id = editUserForm.value.douban_user_id
+  try {
+    await settingsStore.updateUser(userId, payload)
+    editingUser.value = null
+  } catch (e) {
+    alert(e.response?.data?.detail || '修改失败')
+  }
 }
 
 async function onSaveCron(which) {
@@ -544,11 +960,11 @@ async function onSaveCron(which) {
 }
 
 async function onCheckCookie() { await settingsStore.checkCookie() }
-async function onTriggerCrawl() { await settingsStore.triggerCrawl() }
-async function onTriggerUserScrape() { await settingsStore.triggerUserScrape() }
-async function onTriggerUserScrapeFull() { await settingsStore.triggerUserScrape(true) }
-async function onTriggerMeta(mode = 'incremental') { await settingsStore.triggerMetadataBackfill(mode) }
-async function onTriggerImdbCrawl() { await settingsStore.triggerImdbCrawl() }
+async function onTriggerCrawl() { await settingsStore.triggerCrawl(); startPolling() }
+async function onTriggerUserScrape() { await settingsStore.triggerUserScrape(); startPolling() }
+async function onTriggerUserScrapeFull() { await settingsStore.triggerUserScrape(true); startPolling() }
+async function onTriggerMeta(mode = 'incremental') { await settingsStore.triggerMetadataBackfill(mode); startPolling() }
+async function onTriggerImdbCrawl() { await settingsStore.triggerImdbCrawl(); startPolling() }
 
 function startEdit(v) { editingId.value = v.id; editTag.value = v.tag }
 function cancelEdit() { editingId.value = null; editTag.value = '' }
@@ -769,5 +1185,28 @@ async function onDeleteConfirm() {
 .check-result.valid { color: #10b981; }
 .check-result.invalid { color: #f43f5e; }
 
-@media (max-width: 640px) { .card-pad { padding: 14px 16px; } }
+/* === User management === */
+.add-user-form { padding: 14px 0; border-top: 1px solid #f4f4f5; margin-top: 10px; }
+.field-row { display: flex; gap: 12px; margin-bottom: 12px; }
+.field-row .field { flex: 1; margin-bottom: 0; }
+.field-row .flex-2 { flex: 2; }
+.field-row .flex-3 { flex: 3; }
+.field select { width: 100%; height: 36px; padding: 0 12px; border: 1px solid #e4e4e7; border-radius: 8px; font-size: 13px; font-family: inherit; color: #27272a; background: rgba(250, 250, 250, 0.5); transition: all 0.15s; box-sizing: border-box; }
+.field select:focus { outline: none; background: #fff; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+
+/* Inline edit form */
+.edit-row td { padding: 0 !important; background: #fafafa; border-bottom: 1px solid #e4e4e7; }
+.edit-form { padding: 14px 20px; display: flex; align-items: flex-end; gap: 16px; }
+.edit-fields { display: flex; gap: 12px; flex: 1; flex-wrap: wrap; }
+.edit-field { display: flex; flex-direction: column; gap: 4px; min-width: 120px; }
+.edit-field label { font-size: 11px; font-weight: 500; color: #71717a; }
+.edit-field input, .edit-field select { height: 28px; padding: 0 8px; border: 1px solid #e4e4e7; border-radius: 6px; font-size: 12px; font-family: inherit; color: #27272a; background: #fff; }
+.edit-field input:focus, .edit-field select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1); }
+.edit-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .card-pad { padding: 14px 16px; }
+  .field-row { flex-direction: column; gap: 0; }
+  .field-row .field { flex: unset; margin-bottom: 12px; }
+}
 </style>

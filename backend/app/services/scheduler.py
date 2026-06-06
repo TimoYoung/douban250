@@ -194,31 +194,32 @@ def _run_top250():
 def _run_user_scrape():
     from app.services.user_scraper import scrape_user_watched
     from app.services.crawler import crawl_progress
+    from app.models.user import User
 
     if crawl_progress["active"]:
         logger.warning("Crawl already running, skipping scheduled user scrape")
         return
 
-    from app.config import settings as app_settings
-    user_id = app_settings.douban_user_id
-    if not user_id:
-        db = SessionLocal()
-        try:
-            setting = db.query(Setting).filter(Setting.key == "douban_user_id").first()
-            user_id = setting.value if setting and setting.value else ""
-        finally:
-            db.close()
-
-    if not user_id:
-        logger.warning("No douban_user_id configured, skipping user scrape")
-        return
-
-    logger.info(f"Starting scheduled user scrape for {user_id}...")
+    db = SessionLocal()
     try:
-        result = scrape_user_watched(user_id, full=False)
-        logger.info(f"User scrape completed: {result}")
-    except Exception as e:
-        logger.error(f"User scrape failed: {e}")
+        users = db.query(User).filter(
+            User.is_active == True,
+            User.douban_user_id.isnot(None),
+        ).all()
+
+        if not users:
+            logger.warning("No users with douban configuration, skipping user scrape")
+            return
+
+        for user in users:
+            logger.info(f"Starting scheduled user scrape for {user.username} ({user.douban_user_id})...")
+            try:
+                result = scrape_user_watched(user.douban_user_id, full=False, cookie=user.douban_cookie or "")
+                logger.info(f"User scrape completed for {user.username}: {result}")
+            except Exception as e:
+                logger.error(f"User scrape failed for {user.username}: {e}")
+    finally:
+        db.close()
 
 
 def _run_metadata():

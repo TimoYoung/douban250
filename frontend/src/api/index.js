@@ -5,7 +5,67 @@ const api = axios.create({
   timeout: 30000,
 })
 
-// Movies
+// Request interceptor: attach JWT token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// Response interceptor: handle 401 globally
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('auth_token')
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
+// ── Auth ──────────────────────────────────────────────────────────────
+
+export function login(username, password) {
+  return api.post('/auth/login', { username, password })
+}
+
+export function getMe() {
+  return api.get('/auth/me')
+}
+
+export function changePassword(oldPassword, newPassword) {
+  return api.put('/auth/password', { old_password: oldPassword, new_password: newPassword })
+}
+
+export function updateMyDoubanSettings(data) {
+  return api.put('/auth/douban-settings', data)
+}
+
+// ── Admin: User management ────────────────────────────────────────────
+
+export function fetchUsers() {
+  return api.get('/auth/users')
+}
+
+export function createUser(data) {
+  return api.post('/auth/users', data)
+}
+
+export function updateUser(userId, data) {
+  return api.put(`/auth/users/${userId}`, data)
+}
+
+export function deleteUser(userId) {
+  return api.delete(`/auth/users/${userId}`)
+}
+
+// ── Movies ────────────────────────────────────────────────────────────
+
 export function fetchMovies(params = {}) {
   return api.get('/movies', { params })
 }
@@ -26,7 +86,8 @@ export function searchMoviesGlobal(q, limit = 20) {
   return api.get('/movies/search', { params: { q, limit } })
 }
 
-// Versions
+// ── Versions ──────────────────────────────────────────────────────────
+
 export function fetchVersions() {
   return api.get('/versions')
 }
@@ -47,7 +108,8 @@ export function updateVersion(id, data) {
   return api.patch(`/versions/${id}`, data)
 }
 
-// Settings
+// ── Settings (admin-only global settings) ─────────────────────────────
+
 export function fetchSettings() {
   return api.get('/settings')
 }
@@ -56,7 +118,8 @@ export function updateSettings(data) {
   return api.put('/settings', data)
 }
 
-// Crawl
+// ── Crawl ─────────────────────────────────────────────────────────────
+
 export function triggerCrawl() {
   return api.post('/crawl')
 }
@@ -85,12 +148,14 @@ export function fetchCrawlLogs(limit = 20) {
   return api.get('/crawl/logs', { params: { limit } })
 }
 
-// User watched
+// ── User watched ──────────────────────────────────────────────────────
+
 export function fetchWatched() {
   return api.get('/user/watched')
 }
 
-// Metadata backfill
+// ── Metadata backfill ─────────────────────────────────────────────────
+
 export function triggerMetadataBackfill(mode = 'incremental') {
   return api.post('/crawl/metadata', null, { params: { mode } })
 }
@@ -107,7 +172,8 @@ export function fetchCookieCheck() {
   return api.get('/crawl/cookie-check')
 }
 
-// IMDb
+// ── IMDb ──────────────────────────────────────────────────────────────
+
 export function triggerImdbCrawl() {
   return api.post('/crawl/imdb')
 }
@@ -116,7 +182,8 @@ export function fetchImdbProgress() {
   return api.get('/crawl/imdb/progress')
 }
 
-// Pending matches
+// ── Pending matches ───────────────────────────────────────────────────
+
 export function fetchPendingMatches() {
   return api.get('/pending-matches')
 }

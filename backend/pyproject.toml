@@ -1,6 +1,6 @@
 [project]
 name = "douban250"
-version = "0.2.0"
+version = "0.3.0"
 description = "Douban Top 250 movie tracking and analysis system"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,6 +13,9 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "pillow>=10.0.0",
     "playwright>=1.40.0",
+    "PyJWT>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0.0,<5.0.0",
 ]
 
 [project.optional-dependencies]

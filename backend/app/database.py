@@ -81,6 +81,47 @@ def _run_migrations(db):
             "ADD COLUMN last_meta_fetch DATETIME"))
         db.commit()
 
+    # 创建 users 表（多用户认证）
+    tables = {row[0] for row in db.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table'")
+    ).fetchall()}
+    if 'users' not in tables:
+        db.execute(text(
+            "CREATE TABLE users ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "username VARCHAR(50) NOT NULL UNIQUE, "
+            "hashed_password VARCHAR(200) NOT NULL, "
+            "role VARCHAR(20) NOT NULL DEFAULT 'user', "
+            "douban_user_id VARCHAR(20), "
+            "douban_cookie TEXT, "
+            "is_active BOOLEAN DEFAULT 1, "
+            "created_at DATETIME, "
+            "updated_at DATETIME)"))
+        db.commit()
+
+    # 引导默认管理员（表存在但无用户时执行）
+    user_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+    if user_count == 0:
+        from app.utils import now as _now
+        uid_row = db.execute(text(
+            "SELECT value FROM settings WHERE key='douban_user_id'")).fetchone()
+        cookie_row = db.execute(text(
+            "SELECT value FROM settings WHERE key='douban_cookie'")).fetchone()
+        migrated_uid = uid_row[0] if uid_row else None
+        migrated_cookie = cookie_row[0] if cookie_row else None
+
+        from passlib.context import CryptContext
+        pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        hashed = pwd_ctx.hash(settings.default_admin_password)
+        ts = _now().isoformat()
+
+        db.execute(text(
+            "INSERT INTO users (username, hashed_password, role, douban_user_id, "
+            "douban_cookie, is_active, created_at, updated_at) "
+            "VALUES ('admin', :hashed, 'admin', :uid, :cookie, 1, :ts, :ts)"),
+            {"hashed": hashed, "uid": migrated_uid, "cookie": migrated_cookie, "ts": ts})
+        db.commit()
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)

@@ -1,3 +1,16 @@
+<script setup>
+import { useRouter } from 'vue-router'
+import { useAuthStore } from './stores/auth.js'
+
+const router = useRouter()
+const authStore = useAuthStore()
+
+function onLogout() {
+  authStore.logout()
+  router.push('/login')
+}
+</script>
+
 <template>
   <div id="app-layout">
     <nav class="nav-bar">
@@ -8,7 +21,14 @@
       <div class="nav-links">
         <router-link to="/movies">电影列表</router-link>
         <router-link to="/compare">版本对比</router-link>
-        <router-link to="/settings">控制台</router-link>
+        <router-link v-if="authStore.isLoggedIn" to="/settings">控制台</router-link>
+      </div>
+      <div class="nav-right">
+        <template v-if="authStore.isLoggedIn">
+          <span class="nav-user">{{ authStore.user.username }}</span>
+          <button class="nav-logout" @click="onLogout">退出</button>
+        </template>
+        <router-link v-else to="/login" class="nav-login">登录</router-link>
       </div>
     </nav>
     <main class="main-content">
@@ -24,6 +44,14 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+:root {
+  --bg: #fafafa;
+  --card-bg: #ffffff;
+  --border: rgba(228, 228, 231, 0.6);
+  --text: #27272a;
+  --accent: #6366f1;
 }
 
 body {
@@ -101,6 +129,52 @@ body {
 .nav-links a.router-link-active {
   color: #6366f1;
   background: #eef2ff;
+}
+
+.nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.nav-user {
+  font-size: 13px;
+  font-weight: 500;
+  color: #3f3f46;
+}
+
+.nav-logout {
+  background: none;
+  border: 1px solid #e4e4e7;
+  color: #71717a;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.nav-logout:hover {
+  background: #f4f4f5;
+  color: #3f3f46;
+}
+
+.nav-login {
+  text-decoration: none;
+  color: #6366f1;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 12px;
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.nav-login:hover {
+  background: #6366f1;
+  color: #fff;
 }
 
 .main-content {

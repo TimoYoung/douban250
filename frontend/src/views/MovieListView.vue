@@ -35,7 +35,7 @@
             </div>
           </div>
         </div>
-        <select v-model="watchedFilter" @change="onFilterChange" class="filter-select">
+        <select v-if="authStore.isLoggedIn" v-model="watchedFilter" @change="onFilterChange" class="filter-select">
           <option value="all">全部</option>
           <option value="watched">已看过</option>
           <option value="unwatched">未看过</option>
@@ -98,6 +98,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useMoviesStore } from '../stores/movies.js'
 import { useVersionsStore } from '../stores/versions.js'
+import { useAuthStore } from '../stores/auth.js'
 import VersionSelector from '../components/VersionSelector.vue'
 import MovieCard from '../components/MovieCard.vue'
 import MovieListTable from '../components/MovieListTable.vue'
@@ -106,6 +107,7 @@ import PaginationBar from '../components/PaginationBar.vue'
 
 const store = useMoviesStore()
 const versionsStore = useVersionsStore()
+const authStore = useAuthStore()
 
 const viewMode = computed({
   get: () => store.viewMode,

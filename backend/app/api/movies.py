@@ -1,21 +1,25 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Movie, Version, VersionEntry, WatchedMovie, Setting
+from app.models import Movie, Version, VersionEntry, WatchedMovie
+from app.models.user import User
 from app.schemas.movie import MovieListItem, MovieDetail, MovieBubble, PaginatedMovies, GlobalSearchResult
-from app.config import settings
+from app.dependencies import get_current_user, require_admin
 
 router = APIRouter()
 
 
-def _get_user_id(db: Session) -> str:
-    """Read douban_user_id from DB setting, fall back to env config."""
-    row = db.query(Setting).filter(Setting.key == "douban_user_id").first()
-    if row and row.value:
-        return row.value
-    return settings.douban_user_id
+def _get_watched_ids(db: Session, current_user: User | None) -> set[str]:
+    """Return set of watched douban_movie_ids for the current user. Empty for guests."""
+    if current_user is None or not current_user.douban_user_id:
+        return set()
+    return set(
+        r[0] for r in db.query(WatchedMovie.douban_movie_id).filter(
+            WatchedMovie.douban_user_id == current_user.douban_user_id
+        ).all()
+    )
 
 
 def _get_previous_ranks(db: Session, version_id: int) -> dict[int, int]:
@@ -49,6 +53,7 @@ def list_movies(
     watched_filter: str = Query("all", pattern="^(all|watched|unwatched)$"),
     search: str | None = Query(None),
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
 ):
     # Get the version to use
     if version_id is None:
@@ -74,16 +79,12 @@ def list_movies(
             )
         )
 
-    # Get watched IDs
-    watched_ids = set(
-        r[0] for r in db.query(WatchedMovie.douban_movie_id).filter(
-            WatchedMovie.douban_user_id == _get_user_id(db)
-        ).all()
-    )
+    # Get watched IDs (per-user, empty for guests)
+    watched_ids = _get_watched_ids(db, current_user)
 
-    if watched_filter == "watched":
+    if watched_ids and watched_filter == "watched":
         query = query.filter(Movie.douban_id.in_(watched_ids))
-    elif watched_filter == "unwatched":
+    elif watched_ids and watched_filter == "unwatched":
         query = query.filter(~Movie.douban_id.in_(watched_ids))
 
     total = query.count()
@@ -130,6 +131,7 @@ def list_movies(
 def get_bubbles(
     version_id: int | None = Query(None),
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
 ):
     if version_id is None:
         version = db.query(Version).order_by(Version.id.desc()).first()
@@ -145,11 +147,7 @@ def get_bubbles(
         .all()
     )
 
-    watched_ids = set(
-        r[0] for r in db.query(WatchedMovie.douban_movie_id).filter(
-            WatchedMovie.douban_user_id == _get_user_id(db)
-        ).all()
-    )
+    watched_ids = _get_watched_ids(db, current_user)
 
     return [
         MovieBubble(
@@ -228,26 +226,32 @@ def global_search(
 
 
 @router.get("/by-douban/{douban_id}", response_model=MovieDetail)
-def get_movie_by_douban(douban_id: str, db: Session = Depends(get_db)):
+def get_movie_by_douban(
+    douban_id: str,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
     movie = db.query(Movie).filter(Movie.douban_id == douban_id).first()
     if not movie:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Movie not found")
 
-    return _build_movie_detail(movie, db)
+    return _build_movie_detail(movie, db, current_user)
 
 
 @router.get("/{movie_id}", response_model=MovieDetail)
-def get_movie(movie_id: int, db: Session = Depends(get_db)):
+def get_movie(
+    movie_id: int,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
     movie = db.query(Movie).filter(Movie.id == movie_id).first()
     if not movie:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Movie not found")
 
-    return _build_movie_detail(movie, db)
+    return _build_movie_detail(movie, db, current_user)
 
 
-def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
+def _build_movie_detail(movie: Movie, db: Session, current_user: User | None = None) -> MovieDetail:
     # Get ALL versions sorted by tag
     all_versions = db.query(Version).order_by(Version.tag).all()
 
@@ -292,9 +296,9 @@ def _build_movie_detail(movie: Movie, db: Session) -> MovieDetail:
 
     # Check watched
     watched = False
-    if movie.douban_id:
+    if movie.douban_id and current_user and current_user.douban_user_id:
         watched = db.query(WatchedMovie).filter(
-            WatchedMovie.douban_user_id == _get_user_id(db),
+            WatchedMovie.douban_user_id == current_user.douban_user_id,
             WatchedMovie.douban_movie_id == movie.douban_id,
         ).first() is not None
 
@@ -328,6 +332,7 @@ def merge_movies(
     keep_id: int = Query(..., description="Movie ID to keep"),
     merge_id: int = Query(..., description="Movie ID to merge into keep_id"),
     db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
     """合并两个电影实体：将 merge_id 的所有 VersionEntry 迁移到 keep_id，保留两者的 douban_id/imdb_id。"""
     from fastapi import HTTPException

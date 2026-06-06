@@ -6,9 +6,11 @@ from sqlalchemy import func
 from app.database import get_db
 from app.models.movie import (
     PendingMatch, Movie, Version, VersionEntry)
+from app.models.user import User
 from app.schemas.pending_match import (
     PendingMatchListResponse, PendingMatchMovie, PendingMatchVersion,
     PendingMatchResolve)
+from app.dependencies import require_admin
 
 router = APIRouter(tags=["pending-matches"])
 logger = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ def _resolve_imdb_id(
 
 
 @router.get("", response_model=PendingMatchListResponse)
-def list_pending_matches(db: Session = Depends(get_db)):
+def list_pending_matches(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """返回按 imdb_id 去重的待匹配电影列表。"""
     all_pm = db.query(PendingMatch).filter(
         PendingMatch.status == "pending"
@@ -103,6 +105,7 @@ def list_pending_matches(db: Session = Depends(get_db)):
 @router.post("/resolve")
 def resolve_pending_match(
     body: PendingMatchResolve, db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
     """按 imdb_id 解析，自动应用到所有版本中该电影的 pending match。
 

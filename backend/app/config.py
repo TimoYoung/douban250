@@ -16,6 +16,10 @@ class Settings(BaseSettings):
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36"
     )
+    secret_key: str = "CHANGE-ME-IN-PRODUCTION"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440
+    default_admin_password: str = "admin123"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

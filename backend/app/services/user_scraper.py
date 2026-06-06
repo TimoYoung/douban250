@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 PAGE_SIZE = 15
 
 
-def scrape_user_watched(user_id: str, full: bool = False) -> dict:
+def scrape_user_watched(user_id: str, full: bool = False, cookie: str = "") -> dict:
     """Scrape a Douban user's watched/collection list.
 
     Args:
@@ -67,7 +67,7 @@ def scrape_user_watched(user_id: str, full: bool = False) -> dict:
             logger.info(f"Fetching watched page {page_num}: start={start}")
 
             url = f"https://movie.douban.com/people/{user_id}/collect?start={start}&sort=time&rating=&filter=all&mode=grid"
-            html = fetch_page(url)
+            html = fetch_page(url, cookie=cookie)
             page_movies, page_total = parse_watched_page(html)
 
             if page_total > 0:

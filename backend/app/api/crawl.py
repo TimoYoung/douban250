@@ -5,15 +5,17 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import CrawlLog
+from app.models.user import User
 from app.schemas.crawl import CrawlLogInfo, CrawlTriggerResponse
 from app.services.crawler import crawl_progress
 from app.services.metadata import meta_progress, get_meta_progress
+from app.dependencies import require_user, require_admin
 
 router = APIRouter()
 
 
 @router.post("", response_model=CrawlTriggerResponse)
-def trigger_crawl(db: Session = Depends(get_db)):
+def trigger_crawl(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     if crawl_progress["active"]:
         raise HTTPException(status_code=409, detail="A crawl is already running")
 
@@ -24,22 +26,18 @@ def trigger_crawl(db: Session = Depends(get_db)):
 
 
 @router.post("/user-watched", response_model=CrawlTriggerResponse)
-def trigger_user_scrape(full: bool = Query(False), db: Session = Depends(get_db)):
+def trigger_user_scrape(full: bool = Query(False), user: User = Depends(require_user)):
     if crawl_progress["active"]:
         raise HTTPException(status_code=409, detail="A crawl is already running")
 
-    from app.config import settings
-    user_id = settings.douban_user_id
-    if not user_id:
-        # Try from DB
-        from app.models import Setting
-        setting = db.query(Setting).filter(Setting.key == "douban_user_id").first()
-        user_id = setting.value if setting and setting.value else ""
+    if not user.douban_user_id:
+        raise HTTPException(status_code=400, detail="请先在账户设置中配置您的豆瓣用户 ID")
 
-    if not user_id:
-        raise HTTPException(status_code=400, detail="No douban_user_id configured")
-
-    thread = threading.Thread(target=_run_user_scrape, args=(user_id, full), daemon=True)
+    thread = threading.Thread(
+        target=_run_user_scrape,
+        args=(user.douban_user_id, full, user.douban_cookie or ""),
+        daemon=True,
+    )
     thread.start()
     msg = "User watched full sync triggered" if full else "User watched incremental sync triggered"
 
@@ -54,10 +52,10 @@ def _run_top250():
         pass  # Already logged in crawler
 
 
-def _run_user_scrape(user_id: str, full: bool = False):
+def _run_user_scrape(user_id: str, full: bool = False, cookie: str = ""):
     from app.services.user_scraper import scrape_user_watched
     try:
-        scrape_user_watched(user_id, full=full)
+        scrape_user_watched(user_id, full=full, cookie=cookie)
     except Exception:
         pass  # Already logged in user_scraper
 
@@ -110,7 +108,7 @@ def get_crawl_logs(limit: int = 20, db: Session = Depends(get_db)):
 # --- Metadata backfill ---
 
 @router.post("/metadata", response_model=CrawlTriggerResponse)
-def trigger_metadata_backfill(force: bool = Query(False), mode: str = Query("incremental")):
+def trigger_metadata_backfill(force: bool = Query(False), mode: str = Query("incremental"), admin: User = Depends(require_admin)):
     if meta_progress["active"]:
         raise HTTPException(status_code=409, detail="Metadata backfill is already running")
     if crawl_progress["active"]:
@@ -141,9 +139,11 @@ def get_metadata_status(db: Session = Depends(get_db)):
 
 
 @router.get("/cookie-check")
-def check_cookie():
+def check_cookie(user: User = Depends(require_user)):
     from app.services.metadata import check_cookie_valid
-    return check_cookie_valid()
+    if not user.douban_cookie:
+        return {"valid": False, "message": "未配置 Cookie"}
+    return check_cookie_valid(cookie=user.douban_cookie)
 
 
 def _run_metadata(force: bool = False, mode: str = "incremental"):
@@ -157,7 +157,7 @@ def _run_metadata(force: bool = False, mode: str = "incremental"):
 # --- IMDb Top 250 ---
 
 @router.post("/imdb", response_model=CrawlTriggerResponse)
-def trigger_imdb_crawl():
+def trigger_imdb_crawl(admin: User = Depends(require_admin)):
     from app.services.imdb_crawler import get_imdb_progress
     progress = get_imdb_progress()
     if progress["status"] == "running":

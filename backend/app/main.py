@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.database import init_db
-from app.api import movies, versions, crawl, users, pending_matches, auth
+from app.api import movies, versions, crawl, users, pending_matches, auth, backup
 from app.services.scheduler import scheduler
 
 
@@ -68,6 +68,7 @@ app.include_router(crawl.router, prefix="/api/crawl", tags=["crawl"])
 app.include_router(pending_matches.router, prefix="/api/pending-matches", tags=["pending-matches"])
 app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(backup.router, prefix="/api/backup", tags=["backup"])
 
 # Static files for posters
 app.mount("/posters", StaticFiles(directory=str(settings.posters_dir)), name="posters")

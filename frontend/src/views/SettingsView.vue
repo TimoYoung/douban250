@@ -550,6 +550,215 @@
       </div>
     </div>
 
+    <!-- Section: 备份与恢复 (admin only) -->
+    <div class="section" v-if="isAdmin">
+      <h4 class="section-title">备份与恢复</h4>
+
+      <!-- 备份卡片 -->
+      <div class="card">
+        <div class="card-pad">
+          <div class="card-head">
+            <div class="card-icon icon-emerald">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <h3>创建备份</h3>
+          </div>
+
+          <!-- 备份进度 -->
+          <div v-if="backupProgress.active && backupProgress.type === 'backup'" class="backup-progress">
+            <div class="progress-header">
+              <span class="progress-title">正在备份...</span>
+              <span class="progress-percent">{{ backupProgress.percent }}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: backupProgress.percent + '%' }"></div>
+            </div>
+            <div class="progress-detail">
+              <span>{{ backupProgress.detail || backupProgress.message }}</span>
+              <span class="progress-time">已耗时 {{ formatTime(backupProgress.elapsed_seconds) }}</span>
+            </div>
+          </div>
+
+          <!-- 备份完成 -->
+          <div v-else-if="backupResult && backupResult.success" class="backup-result">
+            <div class="result-icon">✅</div>
+            <div class="result-info">
+              <p class="result-title">备份成功！</p>
+              <p>文件：{{ backupResult.filename }}</p>
+              <p>大小：{{ formatSize(backupResult.file_size) }}</p>
+              <p>内容：{{ backupResult.version_count }} 个版本、{{ backupResult.movie_count }} 部电影、{{ backupResult.poster_count }} 张海报</p>
+              <p>耗时：{{ backupResult.elapsed_seconds }} 秒</p>
+            </div>
+            <button class="btn btn-outline" @click="backupResult = null">关闭</button>
+          </div>
+
+          <!-- 版本选择 -->
+          <div v-else class="backup-form">
+            <div class="backup-select-header">
+              <span>选择要备份的版本：</span>
+              <div class="select-actions">
+                <button class="btn-link" @click="selectAllVersions">全选</button>
+                <span class="sep">|</span>
+                <button class="btn-link" @click="invertSelection">反选</button>
+              </div>
+            </div>
+
+            <div class="version-checkbox-list">
+              <label
+                v-for="v in backupVersions"
+                :key="v.id"
+                class="version-checkbox"
+              >
+                <input
+                  type="checkbox"
+                  :value="v.id"
+                  v-model="selectedVersionIds"
+                />
+                <span class="checkbox-label">
+                  <span class="source-badge" :class="v.source === 'imdb' ? 'source-imdb' : 'source-douban'">
+                    {{ v.source === 'imdb' ? 'IMDb' : '豆瓣' }}
+                  </span>
+                  <span>{{ v.tag }}</span>
+                  <span class="movie-count">({{ v.movie_count }}部)</span>
+                </span>
+              </label>
+            </div>
+
+            <div class="backup-summary" v-if="selectedVersionIds.length > 0">
+              已选 {{ selectedVersionIds.length }} 个版本
+            </div>
+
+            <button
+              class="btn btn-dark w-full"
+              @click="onCreateBackup"
+              :disabled="selectedVersionIds.length === 0 || backupProgress.active"
+            >
+              开始备份
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 恢复卡片 -->
+      <div class="card">
+        <div class="card-pad">
+          <div class="card-head">
+            <div class="card-icon icon-amber">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            </div>
+            <h3>恢复备份</h3>
+          </div>
+
+          <!-- 恢复进度 -->
+          <div v-if="backupProgress.active && backupProgress.type === 'restore'" class="backup-progress">
+            <div class="progress-header">
+              <span class="progress-title">正在恢复...</span>
+              <span class="progress-percent">{{ backupProgress.percent }}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: backupProgress.percent + '%' }"></div>
+            </div>
+            <div class="progress-detail">
+              <span>{{ backupProgress.detail || backupProgress.message }}</span>
+              <span class="progress-time">已耗时 {{ formatTime(backupProgress.elapsed_seconds) }}</span>
+            </div>
+          </div>
+
+          <!-- 恢复完成 -->
+          <div v-else-if="restoreResult && restoreResult.success" class="backup-result">
+            <div class="result-icon">✅</div>
+            <div class="result-info">
+              <p class="result-title">恢复成功！</p>
+              <p>模式：{{ restoreResult.mode === 'append' ? '追加' : '覆盖' }}</p>
+              <p>电影：导入 {{ restoreResult.movies_imported }} 部，跳过 {{ restoreResult.movies_skipped }} 部</p>
+              <p>版本：导入 {{ restoreResult.versions_imported }} 个，跳过 {{ restoreResult.versions_skipped }} 个</p>
+              <p>海报：导入 {{ restoreResult.posters_imported }} 张，跳过 {{ restoreResult.posters_skipped }} 张</p>
+              <p>耗时：{{ restoreResult.elapsed_seconds }} 秒</p>
+            </div>
+            <button class="btn btn-outline" @click="restoreResult = null">关闭</button>
+          </div>
+
+          <!-- 备份文件列表 -->
+          <div v-else class="restore-form">
+            <div v-if="backupFiles.length === 0" class="empty-backup">
+              暂无备份文件
+            </div>
+
+            <div v-else class="backup-file-list">
+              <label
+                v-for="f in backupFiles"
+                :key="f.filename"
+                class="backup-file-item"
+                :class="{ selected: selectedBackupFile === f.filename, corrupted: f.corrupted }"
+              >
+                <input
+                  type="radio"
+                  :value="f.filename"
+                  v-model="selectedBackupFile"
+                  :disabled="f.corrupted"
+                />
+                <div class="file-info">
+                  <div class="file-name">{{ f.filename }}</div>
+                  <div class="file-meta">
+                    <span>{{ formatSize(f.size) }}</span>
+                    <span>{{ f.versions.length }} 个版本</span>
+                    <span>{{ f.movie_count }} 部电影</span>
+                  </div>
+                  <div class="file-versions" v-if="f.versions.length > 0">
+                    <span
+                      v-for="v in f.versions"
+                      :key="v.tag + v.source"
+                      class="source-badge"
+                      :class="v.source === 'imdb' ? 'source-imdb' : 'source-douban'"
+                    >
+                      {{ v.source === 'imdb' ? 'IMDb' : '豆瓣' }} {{ v.tag }}
+                    </span>
+                  </div>
+                  <div v-if="f.corrupted" class="file-corrupted">⚠️ 备份文件已损坏</div>
+                </div>
+                <button
+                  class="action-btn action-delete"
+                  @click.stop="onDeleteBackup(f.filename)"
+                  title="删除"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </label>
+            </div>
+
+            <div v-if="selectedBackupFile" class="restore-options">
+              <div class="restore-mode-header">恢复模式：</div>
+              <label class="restore-mode-option">
+                <input type="radio" value="append" v-model="restoreMode" />
+                <div>
+                  <div class="mode-label">追加模式</div>
+                  <div class="mode-desc">保留现有版本，添加备份中的新版本</div>
+                </div>
+              </label>
+              <label class="restore-mode-option">
+                <input type="radio" value="overwrite" v-model="restoreMode" />
+                <div>
+                  <div class="mode-label">覆盖模式</div>
+                  <div class="mode-desc">删除现有版本，用备份数据替换</div>
+                </div>
+              </label>
+              <div v-if="restoreMode === 'overwrite'" class="restore-warning">
+                ⚠️ 覆盖模式将删除所有现有版本数据，此操作不可撤销
+              </div>
+            </div>
+
+            <button
+              class="btn btn-dark w-full"
+              @click="onRestoreBackup"
+              :disabled="!selectedBackupFile || backupProgress.active"
+            >
+              开始恢复
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Delete version confirmation modal -->
     <ConfirmModal
       :visible="deleteModal.visible"
@@ -595,7 +804,11 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useSettingsStore } from '../stores/settings.js'
 import { useAuthStore } from '../stores/auth.js'
-import { fetchDeletePreview, fetchCookieCheck } from '../api/index.js'
+import {
+  fetchDeletePreview, fetchCookieCheck,
+  fetchBackupVersions, createBackup, fetchBackupProgress,
+  fetchBackupFiles, restoreBackup, deleteBackup as apiDeleteBackup,
+} from '../api/index.js'
 import PaginationBar from '../components/PaginationBar.vue'
 import PendingMatches from '../components/PendingMatches.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
@@ -604,6 +817,7 @@ const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
 const isAdmin = computed(() => authStore.isAdmin)
 let progressInterval = null
+let backupProgressInterval = null
 
 // Cron saved snapshots (for dirty detection)
 const savedCron = ref('')
@@ -659,6 +873,16 @@ const newUser = ref({ username: '', password: '', role: 'user', douban_user_id: 
 const editingUser = ref(null)
 const editUserForm = ref({ role: '', is_active: true, password: '', douban_user_id: '' })
 const deleteUserModal = ref({ visible: false, user: null, loading: false })
+
+// Backup & Restore
+const backupVersions = ref([])
+const selectedVersionIds = ref([])
+const backupProgress = ref({ active: false, type: '', percent: 0, detail: '', message: '', elapsed_seconds: 0 })
+const backupResult = ref(null)
+const backupFiles = ref([])
+const selectedBackupFile = ref('')
+const restoreMode = ref('append')
+const restoreResult = ref(null)
 
 const imdbDoneMessage = computed(() => {
   const msg = settingsStore.imdbProgress?.message || ''
@@ -761,6 +985,7 @@ onMounted(async () => {
       settingsStore.loadCookieCheck(),
       settingsStore.loadPendingMatchCount(),
       settingsStore.loadUsers(),
+      loadBackupData(),
     )
   }
 
@@ -773,6 +998,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  stopBackupPolling()
 })
 
 function hasActiveJob() {
@@ -952,6 +1178,126 @@ async function onSaveUser(userId) {
     editingUser.value = null
   } catch (e) {
     alert(e.response?.data?.detail || '修改失败')
+  }
+}
+
+// Backup & Restore functions
+async function loadBackupData() {
+  try {
+    const [versionsRes, filesRes] = await Promise.all([
+      fetchBackupVersions(),
+      fetchBackupFiles(),
+    ])
+    backupVersions.value = versionsRes.data.versions
+    backupFiles.value = filesRes.data.files
+  } catch (e) {
+    console.error('Failed to load backup data:', e)
+  }
+}
+
+function selectAllVersions() {
+  selectedVersionIds.value = backupVersions.value.map(v => v.id)
+}
+
+function invertSelection() {
+  const allIds = backupVersions.value.map(v => v.id)
+  selectedVersionIds.value = allIds.filter(id => !selectedVersionIds.value.includes(id))
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  let size = bytes
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024
+    i++
+  }
+  return `${size.toFixed(1)} ${units[i]}`
+}
+
+function formatElapsed(seconds) {
+  if (!seconds) return '0 秒'
+  if (seconds < 60) return `${seconds} 秒`
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins} 分 ${secs} 秒`
+}
+
+function startBackupPolling() {
+  if (backupProgressInterval) return
+  backupProgressInterval = setInterval(async () => {
+    try {
+      const { data } = await fetchBackupProgress()
+      backupProgress.value = data
+
+      if (!data.active) {
+        stopBackupPolling()
+        if (data.result) {
+          if (data.type === 'backup') {
+            backupResult.value = data.result
+          } else {
+            restoreResult.value = data.result
+          }
+          // Reload backup files list
+          const filesRes = await fetchBackupFiles()
+          backupFiles.value = filesRes.data.files
+        }
+      }
+    } catch (e) {
+      console.error('Failed to poll backup progress:', e)
+    }
+  }, 500)
+}
+
+function stopBackupPolling() {
+  if (backupProgressInterval) {
+    clearInterval(backupProgressInterval)
+    backupProgressInterval = null
+  }
+}
+
+async function onCreateBackup() {
+  if (selectedVersionIds.value.length === 0) return
+
+  backupResult.value = null
+  try {
+    await createBackup(selectedVersionIds.value)
+    startBackupPolling()
+  } catch (e) {
+    alert(e.response?.data?.detail || '备份失败')
+  }
+}
+
+async function onRestoreBackup() {
+  if (!selectedBackupFile.value) return
+
+  if (restoreMode.value === 'overwrite') {
+    if (!confirm('覆盖模式将删除所有现有版本数据，此操作不可撤销。确定继续吗？')) {
+      return
+    }
+  }
+
+  restoreResult.value = null
+  try {
+    await restoreBackup(selectedBackupFile.value, restoreMode.value)
+    startBackupPolling()
+  } catch (e) {
+    alert(e.response?.data?.detail || '恢复失败')
+  }
+}
+
+async function onDeleteBackup(filename) {
+  if (!confirm(`确定删除备份文件 ${filename} 吗？`)) return
+
+  try {
+    await apiDeleteBackup(filename)
+    backupFiles.value = backupFiles.value.filter(f => f.filename !== filename)
+    if (selectedBackupFile.value === filename) {
+      selectedBackupFile.value = ''
+    }
+  } catch (e) {
+    alert(e.response?.data?.detail || '删除失败')
   }
 }
 
@@ -1209,5 +1555,310 @@ async function onDeleteConfirm() {
   .card-pad { padding: 14px 16px; }
   .field-row { flex-direction: column; gap: 0; }
   .field-row .field { flex: unset; margin-bottom: 12px; }
+}
+
+/* === Backup & Restore === */
+.backup-select-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #3f3f46;
+  margin-bottom: 12px;
+}
+
+.select-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #6366f1;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.sep {
+  color: #e4e4e7;
+}
+
+.version-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.version-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.version-checkbox:hover {
+  border-color: #d4d4d8;
+  background: #fafafa;
+}
+
+.version-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #6366f1;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.movie-count {
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.backup-summary {
+  font-size: 12px;
+  color: #71717a;
+  padding: 8px 0;
+  border-top: 1px solid #f4f4f5;
+  margin-top: 8px;
+}
+
+.backup-progress {
+  padding: 16px 0;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.progress-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #27272a;
+}
+
+.progress-percent {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366f1;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #f4f4f5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #818cf8);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-detail {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #71717a;
+  margin-top: 8px;
+}
+
+.progress-time {
+  color: #a1a1aa;
+}
+
+.backup-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+
+.result-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.result-info {
+  flex: 1;
+}
+
+.result-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #166534;
+  margin-bottom: 8px;
+}
+
+.result-info p {
+  font-size: 12px;
+  color: #52525b;
+  margin-bottom: 4px;
+}
+
+.backup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.empty-backup {
+  text-align: center;
+  padding: 24px;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.backup-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.backup-file-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.backup-file-item:hover {
+  border-color: #d4d4d8;
+  background: #fafafa;
+}
+
+.backup-file-item.selected {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.backup-file-item.corrupted {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.backup-file-item input[type="radio"] {
+  margin-top: 2px;
+  accent-color: #6366f1;
+}
+
+.file-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #27272a;
+  margin-bottom: 4px;
+}
+
+.file-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #71717a;
+  margin-bottom: 6px;
+}
+
+.file-versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.file-corrupted {
+  font-size: 12px;
+  color: #f43f5e;
+  margin-top: 4px;
+}
+
+.restore-options {
+  padding: 12px 0;
+  border-top: 1px solid #f4f4f5;
+}
+
+.restore-mode-header {
+  font-size: 13px;
+  font-weight: 500;
+  color: #3f3f46;
+  margin-bottom: 10px;
+}
+
+.restore-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: all 0.15s;
+}
+
+.restore-mode-option:hover {
+  border-color: #d4d4d8;
+  background: #fafafa;
+}
+
+.restore-mode-option input[type="radio"] {
+  margin-top: 2px;
+  accent-color: #6366f1;
+}
+
+.mode-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #27272a;
+  margin-bottom: 2px;
+}
+
+.mode-desc {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.restore-warning {
+  padding: 10px 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #9a3412;
+  margin-top: 8px;
 }
 </style>

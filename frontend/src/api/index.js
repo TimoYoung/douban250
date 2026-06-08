@@ -204,4 +204,34 @@ export function fetchPendingMatchCount() {
   return api.get('/pending-matches')
 }
 
+// ── Backup & Restore ──────────────────────────────────────────────
+
+export function fetchBackupVersions() {
+  return api.get('/backup/versions')
+}
+
+export function createBackup(versionIds) {
+  return api.post('/backup/create', { version_ids: versionIds })
+}
+
+export function fetchBackupProgress() {
+  return api.get('/backup/progress')
+}
+
+export function fetchBackupFiles() {
+  return api.get('/backup/files')
+}
+
+export function fetchBackupManifest(filename) {
+  return api.get(`/backup/files/${filename}`)
+}
+
+export function restoreBackup(filename, mode = 'append') {
+  return api.post('/backup/restore', { filename, mode })
+}
+
+export function deleteBackup(filename) {
+  return api.delete(`/backup/files/${filename}`)
+}
+
 export default api

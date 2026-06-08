@@ -6,9 +6,11 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/posters:/app/posters
+      - ./logs:/app/data/logs
     environment:
       - DATABASE_URL=sqlite:///./data/douban250.db
       - DOUBAN_USER_ID=
       - DOUBAN_COOKIE=
       - DOUBAN_REQUEST_DELAY=2.0
+      - LOG_LEVEL=INFO
     restart: unless-stopped

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 import logging
+from logging.handlers import RotatingFileHandler
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -11,12 +12,39 @@ from app.database import init_db
 from app.api import movies, versions, crawl, users, pending_matches, auth
 from app.services.scheduler import scheduler
 
-# Configure logging to output to console
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+
+def setup_logging():
+    """Configure logging with console and rotating file handlers."""
+    log_dir = settings.log_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
+    formatter = logging.Formatter(log_format, datefmt=date_format)
+
+    # Root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
+
+    # Console handler (stdout)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # File handler with rotation
+    file_handler = RotatingFileHandler(
+        filename=str(log_dir / "app.log"),
+        maxBytes=settings.log_max_bytes,
+        backupCount=settings.log_backup_count,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    logging.info(f"Logging initialized: level={settings.log_level}, dir={log_dir}")
+
+
+setup_logging()
 
 
 @asynccontextmanager

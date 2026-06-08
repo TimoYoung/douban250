@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
     default_admin_password: str = "admin123"
+    log_level: str = "INFO"
+    log_dir: Path = Path("./data/logs")
+    log_max_bytes: int = 10 * 1024 * 1024  # 10MB per file
+    log_backup_count: int = 5
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

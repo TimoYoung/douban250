@@ -26,9 +26,12 @@ docker run -d \
   -p 8000:8000 \
   -v ./data:/app/data \
   -v ./posters:/app/posters \
+  -v ./logs:/app/data/logs \
   --restart unless-stopped \
   timoyoung/douban250:latest
 ```
+
+或使用 `docker compose up -d`（已配置好挂载）。
 
 启动后访问 http://localhost:8000，用默认账号登录：
 
@@ -93,6 +96,8 @@ npm run dev
 | `SECRET_KEY` | JWT 密钥，生产环境务必修改 | `CHANGE-ME-IN-PRODUCTION` |
 | `DEFAULT_ADMIN_PASSWORD` | 默认管理员密码（仅首次启动生效） | `admin123` |
 | `DOUBAN_REQUEST_DELAY` | 爬虫请求间隔（秒），用于防反爬封禁。实际间隔会在此基础上加随机抖动，失败时自动指数退避 | `2.0` |
+| `LOG_LEVEL` | 日志级别（DEBUG/INFO/WARNING/ERROR/CRITICAL） | `INFO` |
+| `LOG_DIR` | 日志文件目录 | `./data/logs` |
 
 ## 注意事项
 

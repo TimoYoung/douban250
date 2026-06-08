@@ -5,7 +5,6 @@ from app.database import get_db
 from app.models import Setting
 from app.models.user import User
 from app.schemas.user import SettingsResponse, SettingsUpdate, UserWatchedResponse
-from app.config import settings
 from app.dependencies import require_user, require_admin
 
 router = APIRouter()
@@ -13,10 +12,10 @@ router = APIRouter()
 
 @router.get("/settings", response_model=SettingsResponse)
 def get_settings(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    cron = _get_setting(db, "cron_expression", settings.cron_expression)
+    cron = _get_setting(db, "cron_expression", "0 9 * * 1")
     user_cron = _get_setting(db, "user_scrape_cron", "")
     meta_cron = _get_setting(db, "metadata_cron", "0 5 * * 0")
-    imdb_cron = _get_setting(db, "imdb_cron", "")
+    imdb_cron = _get_setting(db, "imdb_cron", "0 4 * * *")
     return SettingsResponse(
         cron_expression=cron,
         user_scrape_cron=user_cron,

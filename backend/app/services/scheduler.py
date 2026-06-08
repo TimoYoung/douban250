@@ -2,7 +2,6 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.config import settings
 from app.database import SessionLocal
 from app.models import Setting
 
@@ -19,7 +18,7 @@ class CrawlScheduler:
 
     def start(self):
         """Start the scheduler with configured cron expressions."""
-        top250_cron = self._get_setting("cron_expression", settings.cron_expression)
+        top250_cron = self._get_setting("cron_expression", "0 9 * * 1")  # Default: Monday 9am
         user_cron = self._get_setting("user_scrape_cron", "")
         meta_cron = self._get_setting("metadata_cron", "0 5 * * 0")  # Default: Sunday 5am
 
@@ -29,7 +28,7 @@ class CrawlScheduler:
         if meta_cron:
             self._schedule_meta(meta_cron)
 
-        imdb_cron = self._get_setting("imdb_cron", "")
+        imdb_cron = self._get_setting("imdb_cron", "0 4 * * *")  # Default: Daily 4am
         if imdb_cron:
             self._schedule_imdb(imdb_cron)
 

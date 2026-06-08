@@ -66,9 +66,9 @@
               </div>
               <div class="cron-inline">
                 <label>Cron</label>
-                <input v-model="settingsStore.cronExpression" placeholder="0 3 * * 0" class="cron-input" />
+                <input v-model="settingsStore.cronExpression" placeholder="0 9 * * 1" class="cron-input" />
                 <button v-if="settingsStore.cronExpression !== savedCron" class="cron-save" @click="onSaveCron('cron')">保存</button>
-                <span v-else class="cron-hint">默认 0 3 * * 0（每周日凌晨3点）</span>
+                <span v-else class="cron-hint">默认 0 9 * * 1（每周一上午9点）</span>
               </div>
             </div>
             <button class="btn btn-dark w-full" :disabled="isCrawling" @click="onTriggerCrawl">
@@ -121,8 +121,9 @@
               </div>
               <div class="cron-inline">
                 <label>Cron</label>
-                <input v-model="settingsStore.imdbCron" placeholder="留空禁用" class="cron-input" />
+                <input v-model="settingsStore.imdbCron" placeholder="0 4 * * *" class="cron-input" />
                 <button v-if="settingsStore.imdbCron !== savedImdbCron" class="cron-save" @click="onSaveCron('imdb')">保存</button>
+                <span v-else class="cron-hint">默认 0 4 * * *（每天凌晨4点）</span>
               </div>
             </div>
             <button class="btn btn-dark w-full" :disabled="isImdbCrawling" @click="onTriggerImdbCrawl">

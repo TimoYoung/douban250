@@ -6,7 +6,6 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/douban250.db"
     posters_dir: Path = Path("./posters")
-    cron_expression: str = "0 3 * * 0"  # Weekly Sunday 3am
     douban_user_id: str = ""
     douban_cookie: str = ""
     douban_request_delay: float = 2.0

@@ -37,7 +37,7 @@ async function onLogin() {
     <div class="login-card">
       <div class="login-header">
         <div class="brand-mark">T</div>
-        <h1>Top 250 影史追踪</h1>
+        <h1>Top250 Tracker</h1>
       </div>
       <form @submit.prevent="onLogin" class="login-form">
         <div class="form-group">

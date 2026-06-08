@@ -103,10 +103,8 @@ def _save_info_field(info: dict, key: str, val: str):
         info["genre"] = val.replace(" / ", " ").replace("/", " ").strip()
     elif key == "制片国家/地区":
         info["country"] = val
-    elif key == "上映日期":
-        m = re.search(r"(\d{4})", val)
-        if m:
-            info["year"] = int(m.group(1))
+    # 年份不再从上映日期提取（重映日期会排在前面导致年份错误）
+    # 年份统一由 span.year 提取，见 parse_detail_page
 
 
 def parse_detail_page(html: str) -> dict:
@@ -167,13 +165,23 @@ def parse_detail_page(html: str) -> dict:
         if current_key and current_val_parts:
             _save_info_field(info, current_key, " ".join(current_val_parts))
 
-    # Year fallback
+    # Year: 优先从 span.year 提取（豆瓣展示的原始创作年份，语义最准确）
+    # fallback 到上映日期字段（取最早年份，避免重映日期干扰）
+    year_span = soup.select_one("span.year")
+    if year_span:
+        m = re.search(r"(\d{4})", year_span.text)
+        if m:
+            info["year"] = int(m.group(1))
     if "year" not in info:
-        year_span = soup.select_one("span.year")
-        if year_span:
-            m = re.search(r"(\d{4})", year_span.text)
-            if m:
-                info["year"] = int(m.group(1))
+        # 从上映日期取所有年份，选最小的（即原始上映年份）
+        info_div_el = soup.select_one("#info")
+        if info_div_el:
+            release_text = info_div_el.get_text()
+            years = [int(y) for y in re.findall(r"(\d{4})", release_text)]
+            # 过滤合理范围的年份（1888-当前年份+5，电影史最早1888）
+            valid_years = [y for y in years if 1888 <= y <= 2035]
+            if valid_years:
+                info["year"] = min(valid_years)
 
     quote_el = soup.select_one("span.inq")
     if quote_el:
@@ -320,8 +328,9 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
                     movie.title = info["title"]
                     updated = True
 
-                # 评分和打分人数：full 模式下始终覆盖
-                for field in ["rating", "rating_count"]:
+                # 评分、打分人数、年份：full 模式下始终覆盖
+                # （年份需要覆盖，因为重映日期可能导致之前解析出错误年份）
+                for field in ["rating", "rating_count", "year"]:
                     val = info.get(field)
                     if val and (mode == "full" or not getattr(movie, field)):
                         if getattr(movie, field) != val:
@@ -329,7 +338,7 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
                             updated = True
 
                 # 其他字段：仅填充空值
-                for field in ["director", "genre", "country", "year", "tagline", "summary", "douban_url"]:
+                for field in ["director", "genre", "country", "tagline", "summary", "douban_url"]:
                     if info.get(field) and not getattr(movie, field):
                         setattr(movie, field, info[field])
                         updated = True

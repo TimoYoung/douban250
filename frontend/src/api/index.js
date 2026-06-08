@@ -86,6 +86,14 @@ export function searchMoviesGlobal(q, limit = 20) {
   return api.get('/movies/search', { params: { q, limit } })
 }
 
+export function fetchExploreFilters() {
+  return api.get('/movies/explore/filters')
+}
+
+export function exploreMovies(params = {}) {
+  return api.get('/movies/explore', { params })
+}
+
 // ── Versions ──────────────────────────────────────────────────────────
 
 export function fetchVersions() {

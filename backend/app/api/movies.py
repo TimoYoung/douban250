@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Movie, Version, VersionEntry, WatchedMovie
 from app.models.user import User
-from app.schemas.movie import MovieListItem, MovieDetail, MovieBubble, PaginatedMovies, GlobalSearchResult
+from app.schemas.movie import MovieListItem, MovieDetail, MovieBubble, PaginatedMovies, GlobalSearchResult, ExploreFilters
 from app.dependencies import get_current_user, require_admin
 
 router = APIRouter()
@@ -223,6 +223,164 @@ def global_search(
         )
         for movie, entry, version in rows
     ]
+
+
+@router.get("/explore/filters", response_model=ExploreFilters)
+def get_explore_filters(db: Session = Depends(get_db)):
+    """返回探索页面的筛选维度元数据：所有类型、所有地区、年份范围、评分范围"""
+    movies = db.query(Movie).filter(Movie.detail_fetched == True).all()
+
+    # 解析所有类型（格式："剧情 科幻 冒险"，空格分隔）
+    # 排除纯数字年份、括号内的地区信息等非类型数据
+    _EXCLUDE_GENRES = {"中国大陆", "美国", "日本", "韩国", "英国", "法国", "德国", "意大利",
+                       "中国香港", "中国台湾", "印度", "澳大利亚", "加拿大", "西班牙",
+                       "苏联", "西德", "东德", "瑞典", "丹麦", "波兰", "捷克", "巴西",
+                       "阿根廷", "墨西哥", "伊朗", "泰国", "越南", "印尼", "马来西亚",
+                       "新西兰", "爱尔兰", "比利时", "荷兰", "瑞士", "奥地利", "挪威",
+                       "芬兰", "匈牙利", "希腊", "葡萄牙", "土耳其", "以色列", "南非",
+                       "古巴", "智利", "哥伦比亚", "委内瑞拉", "埃及", "摩洛哥", "突尼斯"}
+    genre_set: set[str] = set()
+    for m in movies:
+        if m.genre:
+            for g in m.genre.split():
+                g = g.strip()
+                # 跳过空字符串、纯数字（年份）、括号内容、已知地区名
+                if g and not g.isdigit() and g not in _EXCLUDE_GENRES and "大陆" not in g:
+                    genre_set.add(g)
+
+    # 解析所有地区（格式："美国 英国 加拿大"，空格分隔）
+    country_set: set[str] = set()
+    for m in movies:
+        if m.country:
+            for c in m.country.split():
+                c = c.strip()
+                # 跳过空字符串、纯数字（年份误入）、斜杠、含括号的年份标注
+                if c and not c.isdigit() and c != "/" and "(" not in c:
+                    country_set.add(c)
+
+    # 年份范围
+    year_stats = db.query(func.min(Movie.year), func.max(Movie.year)).filter(Movie.year.isnot(None)).first()
+    year_min = year_stats[0] or 1900
+    year_max = year_stats[1] or 2026
+
+    # 评分范围
+    rating_stats = db.query(func.min(Movie.rating), func.max(Movie.rating)).filter(Movie.rating.isnot(None)).first()
+    rating_min = round(rating_stats[0] or 0, 1)
+    rating_max = round(rating_stats[1] or 10, 1)
+
+    return ExploreFilters(
+        genres=sorted(genre_set),
+        countries=sorted(country_set),
+        year_min=year_min,
+        year_max=year_max,
+        rating_min=rating_min,
+        rating_max=rating_max,
+    )
+
+
+@router.get("/explore", response_model=PaginatedMovies)
+def explore_movies(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    rating_min: float | None = Query(None, ge=0, le=10),
+    rating_max: float | None = Query(None, ge=0, le=10),
+    genres: str | None = Query(None, description="逗号分隔的类型列表，如 '剧情,科幻'"),
+    countries: str | None = Query(None, description="逗号分隔的地区列表，如 '美国,日本'"),
+    year_min: int | None = Query(None),
+    year_max: int | None = Query(None),
+    watched_filter: str = Query("all", pattern="^(all|watched|unwatched)$"),
+    sort_by: str = Query("rating", pattern="^(rating|year|rank|title)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
+    """探索页面：多维度筛选电影，支持评分/类型/地区/年份/看过状态筛选 + 排序"""
+    query = db.query(Movie).filter(Movie.detail_fetched == True)
+
+    # 评分筛选
+    if rating_min is not None:
+        query = query.filter(Movie.rating >= rating_min)
+    if rating_max is not None:
+        query = query.filter(Movie.rating <= rating_max)
+
+    # 类型筛选（genre 字段格式："剧情 科幻 冒险"，空格分隔，支持多选 AND 逻辑）
+    if genres:
+        genre_list = [g.strip() for g in genres.split(",") if g.strip()]
+        for g in genre_list:
+            query = query.filter(Movie.genre.ilike(f"%{g}%"))
+
+    # 地区筛选（country 字段格式："美国 英国"，空格分隔，支持多选 OR 逻辑）
+    if countries:
+        country_list = [c.strip() for c in countries.split(",") if c.strip()]
+        if country_list:
+            country_filters = [Movie.country.ilike(f"%{c}%") for c in country_list]
+            query = query.filter(or_(*country_filters))
+
+    # 年份筛选
+    if year_min is not None:
+        query = query.filter(Movie.year >= year_min)
+    if year_max is not None:
+        query = query.filter(Movie.year <= year_max)
+
+    # 看过筛选
+    watched_ids = _get_watched_ids(db, current_user)
+    if watched_filter == "watched":
+        if not watched_ids:
+            return PaginatedMovies(items=[], total=0, page=page, page_size=page_size, total_pages=0)
+        query = query.filter(Movie.douban_id.in_(watched_ids))
+    elif watched_filter == "unwatched":
+        if watched_ids:
+            query = query.filter(~Movie.douban_id.in_(watched_ids))
+
+    # 排序
+    sort_column_map = {
+        "rating": Movie.rating,
+        "year": Movie.year,
+        "title": Movie.title,
+        "rank": Movie.rating,  # rank 需要特殊处理，先用 rating 作为默认
+    }
+    sort_col = sort_column_map.get(sort_by, Movie.rating)
+    if sort_order == "asc":
+        query = query.order_by(sort_col.asc().nullslast())
+    else:
+        query = query.order_by(sort_col.desc().nullslast())
+
+    total = query.count()
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+
+    movies = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    # 获取最新版本的排名信息
+    latest_version = db.query(Version).order_by(Version.id.desc()).first()
+    rank_map = {}
+    if latest_version:
+        entries = db.query(VersionEntry).filter(VersionEntry.version_id == latest_version.id).all()
+        rank_map = {e.movie_id: e.rank for e in entries}
+
+    items = []
+    for movie in movies:
+        items.append(MovieListItem(
+            id=movie.id,
+            douban_id=movie.douban_id,
+            imdb_id=movie.imdb_id,
+            title=movie.title,
+            year=movie.year,
+            rating=movie.rating,
+            poster_path=movie.poster_path,
+            rank=rank_map.get(movie.id),
+            watched=(movie.douban_id or "") in watched_ids,
+            director=movie.director,
+            genre=movie.genre,
+            rank_change=None,  # 探索页面不展示排名变化
+        ))
+
+    return PaginatedMovies(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 @router.get("/by-douban/{douban_id}", response_model=MovieDetail)

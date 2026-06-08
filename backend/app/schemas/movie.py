@@ -80,3 +80,13 @@ class GlobalSearchResult(BeijingBaseModel):
     latest_version_tag: str
     rank: int
     source: str = 'douban'
+
+
+class ExploreFilters(BeijingBaseModel):
+    """探索页面可用的筛选维度"""
+    genres: list[str]
+    countries: list[str]
+    year_min: int
+    year_max: int
+    rating_min: float
+    rating_max: float

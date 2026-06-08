@@ -10,6 +10,5 @@ services:
       - DATABASE_URL=sqlite:///./data/douban250.db
       - DOUBAN_USER_ID=
       - DOUBAN_COOKIE=
-      - CRON_EXPRESSION=0 3 * * 0
       - DOUBAN_REQUEST_DELAY=2.0
     restart: unless-stopped

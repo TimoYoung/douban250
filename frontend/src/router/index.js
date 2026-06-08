@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/auth.js'
 const routes = [
   {
     path: '/',
-    redirect: '/movies',
+    redirect: '/explore',
   },
   {
     path: '/movies',
@@ -20,6 +20,11 @@ const routes = [
     path: '/movies/:id',
     name: 'MovieDetail',
     component: () => import('../views/MovieDetailView.vue'),
+  },
+  {
+    path: '/explore',
+    name: 'Explore',
+    component: () => import('../views/ExploreView.vue'),
   },
   {
     path: '/compare',

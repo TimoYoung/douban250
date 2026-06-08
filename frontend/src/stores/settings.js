@@ -17,10 +17,10 @@ import {
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     // Global settings (admin)
-    cronExpression: '0 3 * * 0',
+    cronExpression: '0 9 * * 1',
     userScrapeCron: '',
     metadataCron: '0 5 * * 0',
-    imdbCron: '',
+    imdbCron: '0 4 * * *',
     // Status
     crawlStatus: null,
     top250Status: null,
@@ -52,7 +52,7 @@ export const useSettingsStore = defineStore('settings', {
         this.cronExpression = data.cron_expression
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
-        this.imdbCron = data.imdb_cron || ''
+        this.imdbCron = data.imdb_cron || '0 4 * * *'
       } finally {
         this.loading = false
       }
@@ -70,7 +70,7 @@ export const useSettingsStore = defineStore('settings', {
         this.cronExpression = data.cron_expression
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
-        this.imdbCron = data.imdb_cron || ''
+        this.imdbCron = data.imdb_cron || '0 4 * * *'
       } finally {
         this.saving = false
       }

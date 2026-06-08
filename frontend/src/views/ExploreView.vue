@@ -211,8 +211,11 @@
       <div class="pagination-wrapper" v-if="totalPages > 1">
         <PaginationBar
           :page="page"
+          :pageSize="pageSize"
           :totalPages="totalPages"
+          :total="total"
           @update:page="page = $event"
+          @update:pageSize="onPageSizeChange"
         />
       </div>
     </div>
@@ -250,7 +253,7 @@ const watchedFilter = ref('all')
 const sortBy = ref('rating')
 const sortOrder = ref('desc')
 const page = ref(1)
-const pageSize = 20
+const pageSize = ref(20)
 const filterPanelOpen = ref(false)
 
 // ── 结果数据 ──
@@ -349,6 +352,14 @@ function resetFilters() {
   sortBy.value = 'rating'
   sortOrder.value = 'desc'
   page.value = 1
+  pageSize.value = 20
+}
+
+function onPageSizeChange(newSize) {
+  pageSize.value = newSize
+  page.value = 1  // 切换每页条数时重置到第一页
+  syncToQuery()
+  loadMovies()
 }
 
 // 从 URL 恢复筛选状态
@@ -364,6 +375,7 @@ function restoreFromQuery() {
   if (q.sort_by) sortBy.value = q.sort_by
   if (q.sort_order) sortOrder.value = q.sort_order
   if (q.page) page.value = parseInt(q.page)
+  if (q.page_size) pageSize.value = parseInt(q.page_size)
 }
 
 // 同步筛选状态到 URL
@@ -380,6 +392,7 @@ function syncToQuery() {
   if (sortBy.value !== 'rating') q.sort_by = sortBy.value
   if (sortOrder.value !== 'desc') q.sort_order = sortOrder.value
   if (page.value > 1) q.page = page.value
+  if (pageSize.value !== 20) q.page_size = pageSize.value
   router.replace({ query: q })
 }
 
@@ -404,7 +417,7 @@ async function loadMovies() {
   try {
     const params = {
       page: page.value,
-      page_size: pageSize,
+      page_size: pageSize.value,
       sort_by: sortBy.value,
       sort_order: sortOrder.value,
       watched_filter: watchedFilter.value,

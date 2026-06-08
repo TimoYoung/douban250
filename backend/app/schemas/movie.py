@@ -14,6 +14,7 @@ class MovieBase(BeijingBaseModel):
     genre: Optional[str] = None
     director: Optional[str] = None
     cast_members: Optional[list[str]] = None
+    duration: Optional[int] = None
     rating: Optional[float] = None
     rating_count: Optional[int] = None
     tagline: Optional[str] = None
@@ -34,6 +35,7 @@ class MovieListItem(BeijingBaseModel):
     watched: bool = False
     director: Optional[str] = None
     genre: Optional[str] = None
+    duration: Optional[int] = None
     rank_change: Optional[int] = None  # None=new, >0=up, <0=down, 0=same
 
 
@@ -90,3 +92,5 @@ class ExploreFilters(BeijingBaseModel):
     year_max: int
     rating_min: float
     rating_max: float
+    duration_min: int
+    duration_max: int

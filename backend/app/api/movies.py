@@ -227,7 +227,7 @@ def global_search(
 
 @router.get("/explore/filters", response_model=ExploreFilters)
 def get_explore_filters(db: Session = Depends(get_db)):
-    """返回探索页面的筛选维度元数据：所有类型、所有地区、年份范围、评分范围"""
+    """返回探索页面的筛选维度元数据：所有类型、所有地区、年份范围、评分范围、时长范围"""
     movies = db.query(Movie).filter(Movie.detail_fetched == True).all()
 
     # 解析所有类型（格式："剧情 科幻 冒险"，空格分隔）
@@ -268,6 +268,11 @@ def get_explore_filters(db: Session = Depends(get_db)):
     rating_min = round(rating_stats[0] or 0, 1)
     rating_max = round(rating_stats[1] or 10, 1)
 
+    # 时长范围
+    duration_stats = db.query(func.min(Movie.duration), func.max(Movie.duration)).filter(Movie.duration.isnot(None)).first()
+    duration_min = duration_stats[0] or 0
+    duration_max = duration_stats[1] or 300
+
     return ExploreFilters(
         genres=sorted(genre_set),
         countries=sorted(country_set),
@@ -275,6 +280,8 @@ def get_explore_filters(db: Session = Depends(get_db)):
         year_max=year_max,
         rating_min=rating_min,
         rating_max=rating_max,
+        duration_min=duration_min,
+        duration_max=duration_max,
     )
 
 
@@ -288,13 +295,15 @@ def explore_movies(
     countries: str | None = Query(None, description="逗号分隔的地区列表，如 '美国,日本'"),
     year_min: int | None = Query(None),
     year_max: int | None = Query(None),
+    duration_min: int | None = Query(None, ge=0),
+    duration_max: int | None = Query(None, ge=0),
     watched_filter: str = Query("all", pattern="^(all|watched|unwatched)$"),
-    sort_by: str = Query("rating", pattern="^(rating|year|rank|title)$"),
+    sort_by: str = Query("rating", pattern="^(rating|year|rank|title|duration)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_current_user),
 ):
-    """探索页面：多维度筛选电影，支持评分/类型/地区/年份/看过状态筛选 + 排序"""
+    """探索页面：多维度筛选电影，支持评分/类型/地区/年份/时长/看过状态筛选 + 排序"""
     query = db.query(Movie).filter(Movie.detail_fetched == True)
 
     # 评分筛选
@@ -322,6 +331,12 @@ def explore_movies(
     if year_max is not None:
         query = query.filter(Movie.year <= year_max)
 
+    # 时长筛选
+    if duration_min is not None:
+        query = query.filter(Movie.duration >= duration_min)
+    if duration_max is not None:
+        query = query.filter(Movie.duration <= duration_max)
+
     # 看过筛选
     watched_ids = _get_watched_ids(db, current_user)
     if watched_filter == "watched":
@@ -337,6 +352,7 @@ def explore_movies(
         "rating": Movie.rating,
         "year": Movie.year,
         "title": Movie.title,
+        "duration": Movie.duration,
         "rank": Movie.rating,  # rank 需要特殊处理，先用 rating 作为默认
     }
     sort_col = sort_column_map.get(sort_by, Movie.rating)
@@ -371,6 +387,7 @@ def explore_movies(
             watched=(movie.douban_id or "") in watched_ids,
             director=movie.director,
             genre=movie.genre,
+            duration=movie.duration,
             rank_change=None,  # 探索页面不展示排名变化
         ))
 
@@ -471,6 +488,7 @@ def _build_movie_detail(movie: Movie, db: Session, current_user: User | None = N
         genre=movie.genre,
         director=movie.director,
         cast_members=movie.cast_members,
+        duration=movie.duration,
         rating=movie.rating,
         rating_count=movie.rating_count,
         tagline=movie.tagline,

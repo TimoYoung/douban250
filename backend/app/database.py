@@ -81,6 +81,15 @@ def _run_migrations(db):
             "ADD COLUMN last_meta_fetch DATETIME"))
         db.commit()
 
+    # 检查 movies 表是否有 duration 列
+    result = db.execute(text("PRAGMA table_info(movies)"))
+    columns = {row[1] for row in result}
+    if 'duration' not in columns:
+        db.execute(text(
+            "ALTER TABLE movies "
+            "ADD COLUMN duration INTEGER"))
+        db.commit()
+
     # 创建 users 表（多用户认证）
     tables = {row[0] for row in db.execute(
         text("SELECT name FROM sqlite_master WHERE type='table'")

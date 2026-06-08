@@ -18,6 +18,7 @@
             <div v-if="movie.year"><strong>年份：</strong>{{ movie.year }}</div>
             <div v-if="movie.country"><strong>地区：</strong>{{ movie.country }}</div>
             <div v-if="movie.genre"><strong>类型：</strong>{{ movie.genre }}</div>
+            <div v-if="movie.duration"><strong>片长：</strong>{{ movie.duration }} 分钟</div>
             <div v-if="movie.director"><strong>导演：</strong>{{ movie.director }}</div>
             <div v-if="movie.cast_members && movie.cast_members.length">
               <strong>主演：</strong>{{ movie.cast_members.join(', ') }}

@@ -53,7 +53,8 @@ def _needs_metadata_query():
                 or_(Movie.poster_path.is_(None), Movie.poster_path == "") |
                 or_(Movie.douban_url.is_(None), Movie.douban_url == "") |
                 Movie.rating.is_(None) |
-                Movie.rating_count.is_(None)
+                Movie.rating_count.is_(None) |
+                Movie.duration.is_(None)
             ) &
             (Movie.last_meta_fetch.is_(None) | (Movie.last_meta_fetch < cutoff))
         ),
@@ -103,6 +104,11 @@ def _save_info_field(info: dict, key: str, val: str):
         info["genre"] = val.replace(" / ", " ").replace("/", " ").strip()
     elif key == "制片国家/地区":
         info["country"] = val
+    elif key == "片长":
+        # 解析时长，格式如 "142分钟" 或 "142 分钟"
+        m = re.search(r"(\d+)", val)
+        if m:
+            info["duration"] = int(m.group(1))
     # 年份不再从上映日期提取（重映日期会排在前面导致年份错误）
     # 年份统一由 span.year 提取，见 parse_detail_page
 
@@ -342,6 +348,11 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
                     if info.get(field) and not getattr(movie, field):
                         setattr(movie, field, info[field])
                         updated = True
+
+                # 时长：仅填充空值
+                if info.get("duration") and not movie.duration:
+                    movie.duration = info["duration"]
+                    updated = True
 
                 if info.get("cast_members") and not movie.cast_members:
                     movie.cast_members = info["cast_members"]

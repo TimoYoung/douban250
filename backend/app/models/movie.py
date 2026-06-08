@@ -18,6 +18,7 @@ class Movie(Base):
     genre = Column(String(200))
     director = Column(String(500))
     cast_members = Column(JSON)  # list of names
+    duration = Column(Integer, nullable=True)  # 电影时长（分钟）
     rating = Column(Float)
     rating_count = Column(Integer)
     tagline = Column(Text)

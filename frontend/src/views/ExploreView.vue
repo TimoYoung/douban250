@@ -142,6 +142,52 @@
         </div>
       </div>
 
+      <!-- 时长范围 -->
+      <div class="filter-section">
+        <h3>时长（分钟）</h3>
+        <div class="range-inputs">
+          <input
+            type="number"
+            class="range-input"
+            :min="filterMeta.duration_min"
+            :max="filterMeta.duration_max"
+            step="1"
+            v-model.number="durationRange[0]"
+            @blur="onRangeInputBlur('duration', 0)"
+            @keydown.enter="$event.target.blur()"
+          />
+          <span class="range-sep">—</span>
+          <input
+            type="number"
+            class="range-input"
+            :min="filterMeta.duration_min"
+            :max="filterMeta.duration_max"
+            step="1"
+            v-model.number="durationRange[1]"
+            @blur="onRangeInputBlur('duration', 1)"
+            @keydown.enter="$event.target.blur()"
+          />
+        </div>
+        <div class="dual-slider">
+          <input
+            type="range"
+            :min="filterMeta.duration_min"
+            :max="filterMeta.duration_max"
+            step="1"
+            v-model.number="durationRange[0]"
+            @change="clampRange('duration')"
+          />
+          <input
+            type="range"
+            :min="filterMeta.duration_min"
+            :max="filterMeta.duration_max"
+            step="1"
+            v-model.number="durationRange[1]"
+            @change="clampRange('duration')"
+          />
+        </div>
+      </div>
+
       <!-- 看过状态 -->
       <div class="filter-section" v-if="authStore.isLoggedIn">
         <h3>看过状态</h3>
@@ -166,6 +212,7 @@
             <option value="rating">评分</option>
             <option value="year">年份</option>
             <option value="title">片名</option>
+            <option value="duration">时长</option>
           </select>
           <button
             class="sort-order-btn"
@@ -185,7 +232,7 @@
 
     <!-- 主内容区 -->
     <div class="explore-content">
-      <!-- 移动端筛选按钮 + 结果统计 -->
+      <!-- 移动端筛选按钮 + 结果统计 + 视图切换 -->
       <div class="content-header">
         <button class="mobile-filter-btn" @click="filterPanelOpen = true">
           <span>⚙</span> 筛选
@@ -195,12 +242,76 @@
           <span v-if="!loading">共 <strong>{{ total }}</strong> 部电影</span>
           <span v-else class="loading-text">加载中...</span>
         </div>
+        <div class="view-toggle">
+          <button
+            class="view-btn"
+            :class="{ active: viewMode === 'grid' }"
+            @click="viewMode = 'grid'"
+            title="海报视图"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <rect x="1" y="1" width="6" height="6" rx="1"/>
+              <rect x="9" y="1" width="6" height="6" rx="1"/>
+              <rect x="1" y="9" width="6" height="6" rx="1"/>
+              <rect x="9" y="9" width="6" height="6" rx="1"/>
+            </svg>
+          </button>
+          <button
+            class="view-btn"
+            :class="{ active: viewMode === 'list' }"
+            @click="viewMode = 'list'"
+            title="列表视图"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <rect x="1" y="2" width="14" height="2" rx="1"/>
+              <rect x="1" y="7" width="14" height="2" rx="1"/>
+              <rect x="1" y="12" width="14" height="2" rx="1"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <!-- 电影网格 -->
-      <div class="movie-grid" v-if="movies.length > 0">
+      <!-- 海报视图 -->
+      <div class="movie-grid" v-if="viewMode === 'grid' && movies.length > 0">
         <MovieCard v-for="movie in movies" :key="movie.id" :movie="movie" />
       </div>
+
+      <!-- 列表视图 -->
+      <div class="movie-list" v-else-if="viewMode === 'list' && movies.length > 0">
+        <div class="list-header">
+          <span class="list-col col-poster"></span>
+          <span class="list-col col-title">片名</span>
+          <span class="list-col col-year">年份</span>
+          <span class="list-col col-duration">时长</span>
+          <span class="list-col col-rating">评分</span>
+          <span class="list-col col-director">导演</span>
+          <span class="list-col col-genre">类型</span>
+        </div>
+        <div
+          v-for="movie in movies"
+          :key="movie.id"
+          class="list-row"
+          @click="$router.push(`/movies/${movie.douban_id}`)"
+        >
+          <span class="list-col col-poster">
+            <img v-if="movie.poster_path" :src="`/posters/${movie.poster_path}`" :alt="movie.title" />
+            <div v-else class="list-no-poster">无</div>
+          </span>
+          <span class="list-col col-title">
+            <span class="list-title-text">{{ movie.title }}</span>
+            <span v-if="movie.watched" class="list-watched">看过</span>
+          </span>
+          <span class="list-col col-year">{{ movie.year || '-' }}</span>
+          <span class="list-col col-duration">{{ movie.duration ? movie.duration + '分' : '-' }}</span>
+          <span class="list-col col-rating">
+            <span v-if="movie.rating" class="list-rating">{{ movie.rating }}</span>
+            <span v-else>-</span>
+          </span>
+          <span class="list-col col-director">{{ movie.director || '-' }}</span>
+          <span class="list-col col-genre">{{ movie.genre || '-' }}</span>
+        </div>
+      </div>
+
       <div v-else-if="!loading" class="empty-state">
         <div class="empty-icon">🎬</div>
         <p>没有找到符合条件的电影</p>
@@ -242,6 +353,8 @@ const filterMeta = ref({
   year_max: 2026,
   rating_min: 0,
   rating_max: 10,
+  duration_min: 0,
+  duration_max: 300,
 })
 
 // ── 筛选状态 ──
@@ -249,12 +362,14 @@ const ratingRange = ref([0, 10])
 const selectedGenres = ref([])
 const selectedCountries = ref([])
 const yearRange = ref([1900, 2026])
+const durationRange = ref([0, 300])
 const watchedFilter = ref('all')
 const sortBy = ref('rating')
 const sortOrder = ref('desc')
 const page = ref(1)
 const pageSize = ref(20)
 const filterPanelOpen = ref(false)
+const viewMode = ref('grid')  // 'grid' or 'list'
 
 // ── 结果数据 ──
 const movies = ref([])
@@ -287,6 +402,7 @@ const activeFilterCount = computed(() => {
   if (selectedGenres.value.length > 0) count++
   if (selectedCountries.value.length > 0) count++
   if (yearRange.value[0] > filterMeta.value.year_min || yearRange.value[1] < filterMeta.value.year_max) count++
+  if (durationRange.value[0] > filterMeta.value.duration_min || durationRange.value[1] < filterMeta.value.duration_max) count++
   if (watchedFilter.value !== 'all') count++
   return count
 })
@@ -319,6 +435,10 @@ function clampRange(type) {
     if (yearRange.value[0] > yearRange.value[1]) {
       yearRange.value = [yearRange.value[1], yearRange.value[0]]
     }
+  } else if (type === 'duration') {
+    if (durationRange.value[0] > durationRange.value[1]) {
+      durationRange.value = [durationRange.value[1], durationRange.value[0]]
+    }
   }
 }
 
@@ -340,6 +460,14 @@ function onRangeInputBlur(type, index) {
     if (val > max) val = max
     yearRange.value[index] = Math.round(val)
     clampRange('year')
+  } else if (type === 'duration') {
+    const min = meta.duration_min
+    const max = meta.duration_max
+    let val = durationRange.value[index]
+    if (isNaN(val) || val < min) val = min
+    if (val > max) val = max
+    durationRange.value[index] = Math.round(val)
+    clampRange('duration')
   }
 }
 
@@ -348,6 +476,7 @@ function resetFilters() {
   selectedGenres.value = []
   selectedCountries.value = []
   yearRange.value = [filterMeta.value.year_min, filterMeta.value.year_max]
+  durationRange.value = [filterMeta.value.duration_min, filterMeta.value.duration_max]
   watchedFilter.value = 'all'
   sortBy.value = 'rating'
   sortOrder.value = 'desc'
@@ -371,6 +500,8 @@ function restoreFromQuery() {
   if (q.countries) selectedCountries.value = q.countries.split(',')
   if (q.year_min) yearRange.value[0] = parseInt(q.year_min)
   if (q.year_max) yearRange.value[1] = parseInt(q.year_max)
+  if (q.duration_min) durationRange.value[0] = parseInt(q.duration_min)
+  if (q.duration_max) durationRange.value[1] = parseInt(q.duration_max)
   if (q.watched) watchedFilter.value = q.watched
   if (q.sort_by) sortBy.value = q.sort_by
   if (q.sort_order) sortOrder.value = q.sort_order
@@ -388,6 +519,8 @@ function syncToQuery() {
   if (selectedCountries.value.length > 0) q.countries = selectedCountries.value.join(',')
   if (yearRange.value[0] > meta.year_min) q.year_min = yearRange.value[0]
   if (yearRange.value[1] < meta.year_max) q.year_max = yearRange.value[1]
+  if (durationRange.value[0] > meta.duration_min) q.duration_min = durationRange.value[0]
+  if (durationRange.value[1] < meta.duration_max) q.duration_max = durationRange.value[1]
   if (watchedFilter.value !== 'all') q.watched = watchedFilter.value
   if (sortBy.value !== 'rating') q.sort_by = sortBy.value
   if (sortOrder.value !== 'desc') q.sort_order = sortOrder.value
@@ -406,6 +539,9 @@ async function loadFilters() {
     }
     if (!route.query.year_min && !route.query.year_max) {
       yearRange.value = [data.year_min, data.year_max]
+    }
+    if (!route.query.duration_min && !route.query.duration_max) {
+      durationRange.value = [data.duration_min, data.duration_max]
     }
   } catch (e) {
     console.error('Failed to load explore filters:', e)
@@ -429,6 +565,8 @@ async function loadMovies() {
     if (selectedCountries.value.length > 0) params.countries = selectedCountries.value.join(',')
     if (yearRange.value[0] > meta.year_min) params.year_min = yearRange.value[0]
     if (yearRange.value[1] < meta.year_max) params.year_max = yearRange.value[1]
+    if (durationRange.value[0] > meta.duration_min) params.duration_min = durationRange.value[0]
+    if (durationRange.value[1] < meta.duration_max) params.duration_max = durationRange.value[1]
 
     const { data } = await exploreMovies(params)
     movies.value = data.items
@@ -451,7 +589,7 @@ function debouncedLoad() {
   }, 300)
 }
 
-watch([ratingRange, selectedGenres, selectedCountries, yearRange, watchedFilter, sortBy, sortOrder], debouncedLoad, { deep: true })
+watch([ratingRange, selectedGenres, selectedCountries, yearRange, durationRange, watchedFilter, sortBy, sortOrder], debouncedLoad, { deep: true })
 watch(page, () => {
   syncToQuery()
   loadMovies()
@@ -808,11 +946,177 @@ onMounted(async () => {
   color: #a1a1aa;
 }
 
+/* ── 视图切换 ── */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  background: #f4f4f5;
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.view-btn:hover {
+  color: #3f3f46;
+}
+
+.view-btn.active {
+  background: #fff;
+  color: var(--accent, #6366f1);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
 /* ── 电影网格 ── */
 .movie-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 16px;
+}
+
+/* ── 电影列表 ── */
+.movie-list {
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid rgba(228, 228, 231, 0.6);
+  overflow: hidden;
+}
+
+.list-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  background: #fafafa;
+  border-bottom: 1px solid #e4e4e7;
+  font-size: 12px;
+  font-weight: 600;
+  color: #71717a;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f4f4f5;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.list-row:last-child {
+  border-bottom: none;
+}
+
+.list-row:hover {
+  background: #fafafa;
+}
+
+.list-col {
+  font-size: 13px;
+  color: #52525b;
+}
+
+.col-poster {
+  width: 40px;
+  flex-shrink: 0;
+  margin-right: 12px;
+}
+
+.col-poster img {
+  width: 40px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.list-no-poster {
+  width: 40px;
+  height: 56px;
+  background: #f4f4f5;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #a1a1aa;
+}
+
+.col-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.list-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: #18181b;
+}
+
+.list-watched {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  background: #ecfdf5;
+  color: #10b981;
+  font-size: 11px;
+  border-radius: 3px;
+}
+
+.col-year {
+  width: 50px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.col-duration {
+  width: 60px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.col-rating {
+  width: 50px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.list-rating {
+  color: #faad14;
+  font-weight: 600;
+}
+
+.col-director {
+  width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.col-genre {
+  width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #71717a;
 }
 
 /* ── 空状态 ── */
@@ -879,6 +1183,11 @@ onMounted(async () => {
   .movie-grid {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 12px;
+  }
+
+  .col-director,
+  .col-genre {
+    display: none;
   }
 }
 </style>

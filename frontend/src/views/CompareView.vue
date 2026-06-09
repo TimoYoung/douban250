@@ -175,23 +175,37 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useVersionsStore } from '../stores/versions.js'
 import { fetchCompare } from '../api/index.js'
 import VersionDropdown from '../components/VersionDropdown.vue'
 
 const router = useRouter()
+const route = useRoute()
 const versionsStore = useVersionsStore()
 
 const sourceLabels = { douban: '豆瓣', imdb: 'IMDb' }
 
-const sourceA = ref('douban')
-const sourceB = ref('douban')
-const usePrev = ref(true)
-const versionAId = ref(null)
-const versionBId = ref(null)
+const sourceA = ref(route.query.sourceA || 'douban')
+const sourceB = ref(route.query.sourceB || 'douban')
+const usePrev = ref(route.query.usePrev !== 'false')
+const versionAId = ref(route.query.versionA ? Number(route.query.versionA) : null)
+const versionBId = ref(route.query.versionB ? Number(route.query.versionB) : null)
 const rawData = ref(null)
 const loading = ref(false)
+
+// 同步状态到URL
+function syncToUrl() {
+  const query = {}
+  if (sourceA.value !== 'douban') query.sourceA = sourceA.value
+  if (!usePrev.value) {
+    query.usePrev = 'false'
+    if (sourceB.value !== 'douban') query.sourceB = sourceB.value
+  }
+  if (versionAId.value) query.versionA = versionAId.value
+  if (versionBId.value && !usePrev.value) query.versionB = versionBId.value
+  router.replace({ query })
+}
 
 // Flat version list filtered by source (tag descending)
 const versionsAList = computed(() =>
@@ -235,6 +249,7 @@ function setSourceA(src) {
   if (usePrev.value) {
     // prev recalculates via computed
   }
+  syncToUrl()
   loadCompare()
 }
 
@@ -243,12 +258,14 @@ function setSourceB(src) {
   sourceB.value = src
   const sorted = sortedBySource(src)
   versionBId.value = sorted.length ? sorted[0].id : null
+  syncToUrl()
   loadCompare()
 }
 
 function setPrev() {
   usePrev.value = true
   versionBId.value = computedPrevId.value
+  syncToUrl()
   loadCompare()
 }
 
@@ -256,14 +273,27 @@ function onSelectChange() {
   if (usePrev.value) {
     versionBId.value = computedPrevId.value
   }
+  syncToUrl()
   loadCompare()
 }
 
 onMounted(async () => {
   await versionsStore.loadVersions()
-  // Default: sourceA=douban, latest version
-  const sorted = sortedBySource('douban')
-  if (sorted.length) versionAId.value = sorted[0].id
+
+  // 如果URL中没有指定版本，则使用默认值
+  if (!versionAId.value) {
+    const sorted = sortedBySource(sourceA.value)
+    if (sorted.length) versionAId.value = sorted[0].id
+  }
+
+  // 如果使用上一版本模式，计算上一版本ID
+  if (usePrev.value) {
+    versionBId.value = computedPrevId.value
+  } else if (!versionBId.value) {
+    const sorted = sortedBySource(sourceB.value)
+    if (sorted.length) versionBId.value = sorted[0].id
+  }
+
   loadCompare()
 })
 

@@ -174,7 +174,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useVersionsStore } from '../stores/versions.js'
 import { fetchCompare } from '../api/index.js'
@@ -189,10 +189,15 @@ const sourceLabels = { douban: '豆瓣', imdb: 'IMDb' }
 const sourceA = ref(route.query.sourceA || 'douban')
 const sourceB = ref(route.query.sourceB || 'douban')
 const usePrev = ref(route.query.usePrev !== 'false')
-const versionAId = ref(route.query.versionA ? Number(route.query.versionA) : null)
-const versionBId = ref(route.query.versionB ? Number(route.query.versionB) : null)
+const versionAId = ref(parseId(route.query.versionA))
+const versionBId = ref(parseId(route.query.versionB))
 const rawData = ref(null)
 const loading = ref(false)
+
+function parseId(val) {
+  const n = Number(val)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
 
 // 同步状态到URL
 function syncToUrl() {
@@ -202,10 +207,16 @@ function syncToUrl() {
     query.usePrev = 'false'
     if (sourceB.value !== 'douban') query.sourceB = sourceB.value
   }
-  if (versionAId.value) query.versionA = versionAId.value
-  if (versionBId.value && !usePrev.value) query.versionB = versionBId.value
+  if (versionAId.value != null) query.versionA = versionAId.value
+  if (versionBId.value != null && !usePrev.value) query.versionB = versionBId.value
   router.replace({ query })
 }
+
+// 状态变化时自动同步URL并加载对比数据
+watch([sourceA, sourceB, usePrev, versionAId, versionBId], () => {
+  syncToUrl()
+  loadCompare()
+})
 
 // Flat version list filtered by source (tag descending)
 const versionsAList = computed(() =>
@@ -219,79 +230,49 @@ const versionsBList = computed(() =>
     .sort((a, b) => b.tag.localeCompare(a.tag))
 )
 
-// Flat sorted list per source (tag descending = newest first)
-function sortedBySource(src) {
-  return versionsStore.versions
-    .filter(v => (v.source || 'douban') === src)
-    .sort((a, b) => b.tag.localeCompare(a.tag))
-}
-
 // "上一版本" computed
 const computedPrevId = computed(() => {
-  if (!versionAId.value) return null
-  const sorted = sortedBySource(sourceA.value)
+  if (versionAId.value == null) return null
+  const sorted = versionsAList.value
   const idx = sorted.findIndex(v => v.id === versionAId.value)
   if (idx >= 0 && idx < sorted.length - 1) return sorted[idx + 1].id
   return null
 })
 
-const computedPrevLabel = computed(() => {
-  if (!computedPrevId.value) return '无更早版本'
-  const v = versionsStore.versions.find(v => v.id === computedPrevId.value)
-  return v ? `${v.tag}（${v.movie_count }部）` : '无更早版本'
-})
-
 function setSourceA(src) {
   sourceA.value = src
-  // Auto-select latest version of this source
-  const sorted = sortedBySource(src)
-  versionAId.value = sorted.length ? sorted[0].id : null
-  if (usePrev.value) {
-    // prev recalculates via computed
-  }
-  syncToUrl()
-  loadCompare()
+  versionAId.value = versionsAList.value.length ? versionsAList.value[0].id : null
+  // watch 会自动触发 syncToUrl + loadCompare
 }
 
 function setSourceB(src) {
   usePrev.value = false
   sourceB.value = src
-  const sorted = sortedBySource(src)
-  versionBId.value = sorted.length ? sorted[0].id : null
-  syncToUrl()
-  loadCompare()
+  versionBId.value = versionsBList.value.length ? versionsBList.value[0].id : null
 }
 
 function setPrev() {
   usePrev.value = true
   versionBId.value = computedPrevId.value
-  syncToUrl()
-  loadCompare()
 }
 
 function onSelectChange() {
   if (usePrev.value) {
     versionBId.value = computedPrevId.value
   }
-  syncToUrl()
-  loadCompare()
 }
 
 onMounted(async () => {
   await versionsStore.loadVersions()
 
-  // 如果URL中没有指定版本，则使用默认值
-  if (!versionAId.value) {
-    const sorted = sortedBySource(sourceA.value)
-    if (sorted.length) versionAId.value = sorted[0].id
+  if (versionAId.value == null) {
+    versionAId.value = versionsAList.value.length ? versionsAList.value[0].id : null
   }
 
-  // 如果使用上一版本模式，计算上一版本ID
   if (usePrev.value) {
     versionBId.value = computedPrevId.value
-  } else if (!versionBId.value) {
-    const sorted = sortedBySource(sourceB.value)
-    if (sorted.length) versionBId.value = sorted[0].id
+  } else if (versionBId.value == null) {
+    versionBId.value = versionsBList.value.length ? versionsBList.value[0].id : null
   }
 
   loadCompare()

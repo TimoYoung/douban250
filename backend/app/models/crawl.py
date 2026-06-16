@@ -17,3 +17,4 @@ class CrawlLog(Base):
     new_version_created = Column(Boolean, default=False)
     error_message = Column(Text)
     movies_found = Column(Integer)
+    retry_of = Column(Integer, ForeignKey("crawl_logs.id"), nullable=True)  # 重试的原始记录ID

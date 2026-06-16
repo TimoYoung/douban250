@@ -35,7 +35,7 @@
                 最近一次：{{ formatTime(settingsStore.top250Status.finished_at) }}
               </p>
               <p class="status-line" v-else-if="settingsStore.top250Status?.status === 'running'">爬取中...</p>
-              <p class="status-line status-error" v-else-if="settingsStore.top250Status?.status === 'failed'">失败：{{ settingsStore.top250Status.error_message }}</p>
+              <p class="status-line status-error" v-else-if="settingsStore.top250Status?.status === 'failed'">失败：{{ settingsStore.top250Status.error_message }}，系统将自动重试</p>
               <p class="status-line status-muted" v-else>尚未执行</p>
               <div class="tag-row" v-if="settingsStore.top250Status?.status === 'success'">
                 <span class="tag tag-green" v-if="settingsStore.top250Status.new_version_created">新版本</span>
@@ -70,6 +70,28 @@
                 <button v-if="settingsStore.cronExpression !== savedCron" class="cron-save" @click="onSaveCron('cron')">保存</button>
                 <span v-else class="cron-hint">默认 0 9 * * 1（每周一上午9点）</span>
               </div>
+              <div v-if="cronNextRun('cron')" class="cron-next">
+                下次运行: {{ cronNextRun('cron') }}
+              </div>
+              <!-- Auto Execution Status -->
+              <div v-if="settingsStore.top250Retry && settingsStore.top250Retry.status !== 'exhausted'" class="retry-status">
+                <div class="retry-header">
+                  <span class="retry-label">自动执行状态</span>
+                  <span class="retry-tag" :class="'retry-' + settingsStore.top250Retry.status">
+                    {{ retryStatusText(settingsStore.top250Retry.status) }}
+                  </span>
+                </div>
+                <div v-if="settingsStore.top250Retry.status === 'pending'" class="retry-info">
+                  <span class="retry-count">第 {{ settingsStore.top250Retry.retry_count }}/{{ settingsStore.top250Retry.max_retries }} 次重试</span>
+                  <span class="retry-time">下次自动执行: {{ formatRetryTime(settingsStore.top250Retry.next_retry) }}</span>
+                </div>
+                <div v-if="settingsStore.top250Retry.last_error" class="retry-error" :title="settingsStore.top250Retry.last_error">
+                  {{ truncateError(settingsStore.top250Retry.last_error) }}
+                </div>
+                <button v-if="settingsStore.top250Retry.status === 'pending'" class="btn btn-outline btn-sm" @click="onCancelRetry('top250')">
+                  取消自动重试
+                </button>
+              </div>
             </div>
             <button class="btn btn-dark w-full" :disabled="isCrawling" @click="onTriggerCrawl">
               {{ isCrawling ? '抓取中...' : '立即抓取' }}
@@ -100,7 +122,7 @@
                 <span class="tag tag-amber" v-if="settingsStore.pendingMatchCount > 0">{{ settingsStore.pendingMatchCount }} 部待确认</span>
               </div>
               <p class="status-line status-error" v-else-if="settingsStore.imdbProgress?.status === 'error'">
-                失败：{{ settingsStore.imdbProgress.message }}
+                失败：{{ settingsStore.imdbProgress.message }}，系统将自动重试
               </p>
               <p class="status-line status-muted" v-else-if="!settingsStore.imdbProgress || settingsStore.imdbProgress.status === 'idle'">尚未执行</p>
               <!-- IMDb Crawl Progress -->
@@ -125,11 +147,65 @@
                 <button v-if="settingsStore.imdbCron !== savedImdbCron" class="cron-save" @click="onSaveCron('imdb')">保存</button>
                 <span v-else class="cron-hint">默认 0 4 * * *（每天凌晨4点）</span>
               </div>
+              <div v-if="cronNextRun('imdb')" class="cron-next">
+                下次运行: {{ cronNextRun('imdb') }}
+              </div>
+              <!-- Auto Execution Status -->
+              <div v-if="settingsStore.imdbRetry && settingsStore.imdbRetry.status !== 'exhausted'" class="retry-status">
+                <div class="retry-header">
+                  <span class="retry-label">自动执行状态</span>
+                  <span class="retry-tag" :class="'retry-' + settingsStore.imdbRetry.status">
+                    {{ retryStatusText(settingsStore.imdbRetry.status) }}
+                  </span>
+                </div>
+                <div v-if="settingsStore.imdbRetry.status === 'pending'" class="retry-info">
+                  <span class="retry-count">第 {{ settingsStore.imdbRetry.retry_count }}/{{ settingsStore.imdbRetry.max_retries }} 次重试</span>
+                  <span class="retry-time">下次自动执行: {{ formatRetryTime(settingsStore.imdbRetry.next_retry) }}</span>
+                </div>
+                <div v-if="settingsStore.imdbRetry.last_error" class="retry-error" :title="settingsStore.imdbRetry.last_error">
+                  {{ truncateError(settingsStore.imdbRetry.last_error) }}
+                </div>
+                <button v-if="settingsStore.imdbRetry.status === 'pending'" class="btn btn-outline btn-sm" @click="onCancelRetry('imdb')">
+                  取消自动重试
+                </button>
+              </div>
             </div>
             <button class="btn btn-dark w-full" :disabled="isImdbCrawling" @click="onTriggerImdbCrawl">
               {{ isImdbCrawling ? '抓取中...' : '立即抓取' }}
             </button>
           </div>
+        </div>
+      </div>
+
+      <!-- Retry Settings -->
+      <div class="card">
+        <div class="card-pad">
+          <div class="card-head">
+            <div class="card-icon icon-indigo">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </div>
+            <div>
+              <h3>自动执行配置</h3>
+              <p class="card-subtitle">配置爬虫失败后的自动重试策略</p>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="retry-settings-row">
+              <div class="retry-setting">
+                <label>自动重试间隔（秒）</label>
+                <input v-model.number="settingsStore.retryInterval" type="number" min="60" max="86400" class="retry-input" />
+                <span class="retry-hint">默认 3600（1小时）</span>
+              </div>
+              <div class="retry-setting">
+                <label>最大自动重试次数</label>
+                <input v-model.number="settingsStore.maxRetries" type="number" min="1" max="10" class="retry-input" />
+                <span class="retry-hint">默认 3 次</span>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-outline w-full" :disabled="settingsStore.saving" @click="onSaveRetrySettings">
+            {{ settingsStore.saving ? '保存中...' : '保存自动执行配置' }}
+          </button>
         </div>
       </div>
 
@@ -812,6 +888,7 @@ import {
 import PaginationBar from '../components/PaginationBar.vue'
 import PendingMatches from '../components/PendingMatches.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
+import { CronExpressionParser } from 'cron-parser'
 
 const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
@@ -1048,6 +1125,56 @@ async function refreshStatus() {
 function formatTime(t) {
   if (!t) return ''
   return new Date(t).toLocaleString('zh-CN')
+}
+
+function retryStatusText(status) {
+  const map = {
+    pending: '等待重试',
+    running: '重试中',
+    cancelled: '已取消',
+    exhausted: '已耗尽',
+    failed: '失败',
+  }
+  return map[status] || status
+}
+
+function formatRetryTime(t) {
+  if (!t) return ''
+  return new Date(t).toLocaleString('zh-CN')
+}
+
+function truncateError(msg) {
+  if (!msg) return ''
+  return msg.length > 50 ? msg.slice(0, 50) + '...' : msg
+}
+
+function cronNextRun(type) {
+  try {
+    const expr = type === 'cron' ? settingsStore.cronExpression : settingsStore.imdbCron
+    if (!expr || !expr.trim()) return ''
+    const interval = CronExpressionParser.parse(expr)
+    const next = interval.next().toDate()
+    return next.toLocaleString('zh-CN')
+  } catch {
+    return ''
+  }
+}
+
+async function onCancelRetry(jobType) {
+  try {
+    await settingsStore.cancelRetry(jobType)
+  } catch (e) {
+    alert(e.response?.data?.detail || '取消重试失败')
+  }
+}
+
+async function onSaveRetrySettings() {
+  try {
+    await settingsStore.saveRetrySettings()
+    alert('自动执行配置已保存')
+  } catch (e) {
+    alert(e.response?.data?.detail || '保存失败')
+  }
 }
 
 async function onSave() {
@@ -1448,6 +1575,60 @@ async function onDeleteConfirm() {
   font-family: inherit;
 }
 .cron-save:hover { background: #6366f1; color: #fff; }
+.cron-next {
+  font-size: 11px;
+  color: #a1a1aa;
+  padding-left: 8px;
+}
+
+/* === Retry Settings === */
+.retry-settings-row {
+  display: flex;
+  gap: 16px;
+}
+.retry-setting {
+  flex: 1;
+}
+.retry-setting label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717a;
+  margin-bottom: 6px;
+}
+.retry-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  color: #27272a;
+  background: rgba(250, 250, 250, 0.5);
+  transition: all 0.15s;
+  box-sizing: border-box;
+}
+.retry-input:hover {
+  border-color: #d4d4d8;
+}
+.retry-input:focus {
+  outline: none;
+  background: #fff;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+.retry-hint {
+  display: block;
+  font-size: 10px;
+  color: #d4d4d8;
+  margin-top: 4px;
+}
+@media (max-width: 640px) {
+  .retry-settings-row {
+    flex-direction: column;
+  }
+}
 
 /* === Progress === */
 .crawl-progress { margin-top: 4px; }
@@ -1461,6 +1642,83 @@ async function onDeleteConfirm() {
 .progress-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #6366f1, #818cf8); transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
 .gradient-indigo { background: linear-gradient(90deg, #6366f1, #818cf8); }
 .gradient-amber { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+
+/* === Retry Status === */
+.retry-status {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #f4f4f5;
+}
+.retry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.retry-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #71717a;
+}
+.retry-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 4px;
+}
+.retry-pending {
+  background: #fffbeb;
+  color: #d97706;
+}
+.retry-running {
+  background: #eef2ff;
+  color: #6366f1;
+}
+.retry-cancelled {
+  background: #f4f4f5;
+  color: #71717a;
+}
+.retry-exhausted {
+  background: #fef2f2;
+  color: #ef4444;
+}
+.retry-failed {
+  background: #fef2f2;
+  color: #ef4444;
+}
+.retry-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #71717a;
+  margin-bottom: 6px;
+}
+.retry-count {
+  font-weight: 500;
+}
+.retry-time {
+  color: #a1a1aa;
+}
+.retry-error {
+  font-size: 11px;
+  color: #ef4444;
+  margin-bottom: 8px;
+  cursor: help;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
 .stat-row { display: flex; align-items: center; gap: 12px; font-size: 11px; color: #a1a1aa; }
 .stat-green { color: #10b981; font-weight: 500; }
 .stat-red { color: #f43f5e; font-weight: 500; }

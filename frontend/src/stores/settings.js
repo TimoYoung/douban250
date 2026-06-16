@@ -6,6 +6,7 @@ import {
   fetchTop250Status, fetchUserWatchedStatus,
   fetchMetadataProgress, fetchMetadataStatus, fetchCookieCheck,
   triggerImdbCrawl, fetchImdbProgress,
+  fetchRetryStatus, cancelRetry, cancelAllRetries,
   fetchVersions, deleteVersion, updateVersion,
   fetchPendingMatches, resolvePendingMatch,
   fetchPendingMatchCount,
@@ -31,6 +32,11 @@ export const useSettingsStore = defineStore('settings', {
     cookieCheck: null,
     checkingCookie: false,
     imdbProgress: null,
+    // Retry state
+    top250Retry: null,
+    imdbRetry: null,
+    retryInterval: 3600,
+    maxRetries: 3,
     versions: [],
     loading: false,
     saving: false,
@@ -53,6 +59,8 @@ export const useSettingsStore = defineStore('settings', {
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
         this.imdbCron = data.imdb_cron || '0 4 * * *'
+        this.retryInterval = data.retry_interval || 3600
+        this.maxRetries = data.max_retries || 3
       } finally {
         this.loading = false
       }
@@ -66,11 +74,15 @@ export const useSettingsStore = defineStore('settings', {
           user_scrape_cron: this.userScrapeCron,
           metadata_cron: this.metadataCron,
           imdb_cron: this.imdbCron,
+          retry_interval: this.retryInterval,
+          max_retries: this.maxRetries,
         })
         this.cronExpression = data.cron_expression
         this.userScrapeCron = data.user_scrape_cron || ''
         this.metadataCron = data.metadata_cron || '0 5 * * 0'
         this.imdbCron = data.imdb_cron || '0 4 * * *'
+        this.retryInterval = data.retry_interval || 3600
+        this.maxRetries = data.max_retries || 3
       } finally {
         this.saving = false
       }
@@ -153,6 +165,10 @@ export const useSettingsStore = defineStore('settings', {
     async loadCrawlProgress() {
       const { data } = await fetchCrawlProgress()
       this.crawlProgress = data
+      // 提取重试状态
+      if (data.retry) {
+        this.top250Retry = data.retry
+      }
     },
 
     async loadMetadataProgress() {
@@ -189,6 +205,42 @@ export const useSettingsStore = defineStore('settings', {
     async loadImdbProgress() {
       const { data } = await fetchImdbProgress()
       this.imdbProgress = data
+      // 提取重试状态
+      if (data.retry) {
+        this.imdbRetry = data.retry
+      }
+    },
+
+    // ── Retry management ──────────────────────────────────────────────
+    async cancelRetry(jobType) {
+      await cancelRetry(jobType)
+      // 重新加载对应的重试状态
+      if (jobType === 'top250') {
+        await this.loadCrawlProgress()
+      } else if (jobType === 'imdb') {
+        await this.loadImdbProgress()
+      }
+    },
+
+    async cancelAllRetries() {
+      await cancelAllRetries()
+      // 重新加载所有重试状态
+      await this.loadCrawlProgress()
+      await this.loadImdbProgress()
+    },
+
+    async saveRetrySettings() {
+      this.saving = true
+      try {
+        const { data } = await updateSettings({
+          retry_interval: this.retryInterval,
+          max_retries: this.maxRetries,
+        })
+        this.retryInterval = data.retry_interval || 3600
+        this.maxRetries = data.max_retries || 3
+      } finally {
+        this.saving = false
+      }
     },
 
     // ── Pending matches ───────────────────────────────────────────────

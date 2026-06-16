@@ -16,11 +16,15 @@ def get_settings(db: Session = Depends(get_db), admin: User = Depends(require_ad
     user_cron = _get_setting(db, "user_scrape_cron", "")
     meta_cron = _get_setting(db, "metadata_cron", "0 5 * * 0")
     imdb_cron = _get_setting(db, "imdb_cron", "0 4 * * *")
+    retry_interval = _get_setting(db, "retry_interval", "3600")
+    max_retries = _get_setting(db, "max_retries", "3")
     return SettingsResponse(
         cron_expression=cron,
         user_scrape_cron=user_cron,
         metadata_cron=meta_cron,
         imdb_cron=imdb_cron,
+        retry_interval=int(retry_interval),
+        max_retries=int(max_retries),
     )
 
 
@@ -50,6 +54,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), admin: 
             scheduler.reschedule_imdb(data.imdb_cron)
         else:
             scheduler.remove_imdb_job()
+
+    if data.retry_interval is not None:
+        _set_setting(db, "retry_interval", str(data.retry_interval))
+
+    if data.max_retries is not None:
+        _set_setting(db, "max_retries", str(data.max_retries))
 
     return get_settings(db=db, admin=admin)
 

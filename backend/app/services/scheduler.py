@@ -177,6 +177,16 @@ class CrawlScheduler:
 def _run_top250():
     from app.services.crawler import crawl_top250
     from app.services.crawler import crawl_progress
+    from app.services.retry_manager import get_retry_manager
+
+    # 取消等待中的重试
+    try:
+        retry_mgr = get_retry_manager()
+        if retry_mgr.has_pending_retry("top250"):
+            logger.info("Cancelling pending retry for top250 due to scheduled task")
+            retry_mgr.cancel_retry("top250")
+    except Exception as e:
+        logger.warning(f"Failed to cancel retry: {e}")
 
     if crawl_progress["active"]:
         logger.warning("Crawl already running, skipping scheduled top250 crawl")
@@ -240,6 +250,16 @@ def _run_metadata():
 def _run_imdb():
     from app.services.imdb_crawler import crawl_imdb_top250, get_imdb_progress
     from app.services.crawler import crawl_progress
+    from app.services.retry_manager import get_retry_manager
+
+    # 取消等待中的重试
+    try:
+        retry_mgr = get_retry_manager()
+        if retry_mgr.has_pending_retry("imdb"):
+            logger.info("Cancelling pending retry for imdb due to scheduled task")
+            retry_mgr.cancel_retry("imdb")
+    except Exception as e:
+        logger.warning(f"Failed to cancel retry: {e}")
 
     progress = get_imdb_progress()
     if progress["status"] == "running" or crawl_progress["active"]:

@@ -190,6 +190,20 @@ export function fetchImdbProgress() {
   return api.get('/crawl/imdb/progress')
 }
 
+// ── Retry management ──────────────────────────────────────────────────
+
+export function fetchRetryStatus(jobType) {
+  return api.get('/crawl/retry/status', { params: { job_type: jobType } })
+}
+
+export function cancelRetry(jobType) {
+  return api.post('/crawl/retry/cancel', null, { params: { job_type: jobType } })
+}
+
+export function cancelAllRetries() {
+  return api.post('/crawl/retry/cancel-all')
+}
+
 // ── Pending matches ───────────────────────────────────────────────────
 
 export function fetchPendingMatches() {

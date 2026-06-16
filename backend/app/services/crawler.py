@@ -15,6 +15,13 @@ from app.utils.html_parser import parse_top250_page
 
 logger = logging.getLogger(__name__)
 
+
+def _get_retry_manager():
+    """延迟导入重试管理器，避免循环导入"""
+    from app.services.retry_manager import get_retry_manager
+    return get_retry_manager()
+
+
 # In-memory progress state for real-time tracking
 crawl_progress = {
     "active": False,
@@ -185,6 +192,13 @@ def crawl_top250() -> dict:
         crawl_progress.update({"phase": "done", "active": False, "message": "爬取完成"})
         logger.info(f"Top 250 crawl completed: {result}")
 
+        # 成功后取消等待中的重试
+        try:
+            retry_mgr = _get_retry_manager()
+            retry_mgr.cancel_retry("top250")
+        except Exception as e:
+            logger.warning(f"Failed to cancel retry: {e}")
+
         # 新版本创建后自动触发增量元数据补全
         if result.get("new_version"):
             _trigger_metadata_backfill()
@@ -198,6 +212,14 @@ def crawl_top250() -> dict:
         log.error_message = str(e)
         db.commit()
         crawl_progress.update({"phase": "done", "active": False, "message": f"爬取失败: {e}"})
+
+        # 安排重试
+        try:
+            retry_mgr = _get_retry_manager()
+            retry_mgr.schedule_retry("top250", str(e), log.id)
+        except Exception as retry_err:
+            logger.error(f"Failed to schedule retry: {retry_err}")
+
         raise
     finally:
         db.close()

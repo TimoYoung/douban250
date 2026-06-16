@@ -6,12 +6,18 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CrawlLog
 from app.models.user import User
-from app.schemas.crawl import CrawlLogInfo, CrawlTriggerResponse
+from app.schemas.crawl import CrawlLogInfo, CrawlTriggerResponse, RetryStatusResponse, RetryCancelResponse
 from app.services.crawler import crawl_progress
 from app.services.metadata import meta_progress, get_meta_progress
 from app.dependencies import require_user, require_admin
 
 router = APIRouter()
+
+
+def _get_retry_manager():
+    """延迟导入重试管理器，避免循环导入"""
+    from app.services.retry_manager import get_retry_manager
+    return get_retry_manager()
 
 
 @router.post("", response_model=CrawlTriggerResponse)
@@ -96,7 +102,14 @@ def get_user_watched_status(db: Session = Depends(get_db)):
 
 @router.get("/progress")
 def get_crawl_progress():
-    return crawl_progress
+    progress = dict(crawl_progress)
+    # 添加重试状态信息
+    try:
+        retry_mgr = _get_retry_manager()
+        progress["retry"] = retry_mgr.get_retry_status("top250")
+    except Exception:
+        progress["retry"] = {"status": "unknown"}
+    return progress
 
 
 @router.get("/logs", response_model=list[CrawlLogInfo])
@@ -173,7 +186,14 @@ def trigger_imdb_crawl(admin: User = Depends(require_admin)):
 @router.get("/imdb/progress")
 def get_imdb_crawl_progress():
     from app.services.imdb_crawler import get_imdb_progress
-    return get_imdb_progress()
+    progress = get_imdb_progress()
+    # 添加重试状态信息
+    try:
+        retry_mgr = _get_retry_manager()
+        progress["retry"] = retry_mgr.get_retry_status("imdb")
+    except Exception:
+        progress["retry"] = {"status": "unknown"}
+    return progress
 
 
 def _run_imdb_crawl():
@@ -183,3 +203,44 @@ def _run_imdb_crawl():
         crawl_imdb_top250(SessionLocal)
     except Exception:
         pass
+
+
+# --- Retry Management ---
+
+@router.get("/retry/status", response_model=RetryStatusResponse)
+def get_retry_status(job_type: str = Query(..., description="任务类型: top250 或 imdb")):
+    """获取指定任务的重试状态"""
+    if job_type not in ("top250", "imdb"):
+        raise HTTPException(status_code=400, detail="job_type 必须是 top250 或 imdb")
+    try:
+        retry_mgr = _get_retry_manager()
+        return retry_mgr.get_retry_status(job_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取重试状态失败: {e}")
+
+
+@router.post("/retry/cancel", response_model=RetryCancelResponse)
+def cancel_retry(job_type: str = Query(..., description="任务类型: top250 或 imdb"), admin: User = Depends(require_admin)):
+    """取消等待中的重试"""
+    if job_type not in ("top250", "imdb"):
+        raise HTTPException(status_code=400, detail="job_type 必须是 top250 或 imdb")
+    try:
+        retry_mgr = _get_retry_manager()
+        cancelled = retry_mgr.cancel_retry(job_type)
+        if cancelled:
+            return RetryCancelResponse(message=f"已取消 {job_type} 的等待重试", cancelled=True)
+        else:
+            return RetryCancelResponse(message=f"{job_type} 没有等待中的重试", cancelled=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"取消重试失败: {e}")
+
+
+@router.post("/retry/cancel-all", response_model=RetryCancelResponse)
+def cancel_all_retries(admin: User = Depends(require_admin)):
+    """取消所有等待中的重试"""
+    try:
+        retry_mgr = _get_retry_manager()
+        retry_mgr.cancel_all_retries()
+        return RetryCancelResponse(message="已取消所有等待中的重试", cancelled=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"取消重试失败: {e}")

@@ -25,6 +25,12 @@ from app.utils.http_client import _get_cookie, get_headers
 
 logger = logging.getLogger(__name__)
 
+
+def _get_retry_manager():
+    """延迟导入重试管理器，避免循环导入"""
+    from app.services.retry_manager import get_retry_manager
+    return get_retry_manager()
+
 _imdb_progress = {
     "status": "idle", "phase": "", "current": 0, "total": 250,
     "message": "", "matched": 0, "created": 0, "douban_searched": 0,
@@ -735,9 +741,23 @@ def crawl_imdb_top250(db_factory) -> dict:
         if _imdb_progress.get("new_version"):
             _trigger_metadata_backfill()
 
+        # 成功后取消等待中的重试
+        try:
+            retry_mgr = _get_retry_manager()
+            retry_mgr.cancel_retry("imdb")
+        except Exception as e:
+            logger.warning(f"Failed to cancel retry: {e}")
+
     except Exception as e:
         logger.exception("IMDb crawl failed")
         _update_progress(status="error", message=f"爬取失败: {e}")
+
+        # 安排重试
+        try:
+            retry_mgr = _get_retry_manager()
+            retry_mgr.schedule_retry("imdb", str(e))
+        except Exception as retry_err:
+            logger.error(f"Failed to schedule retry: {retry_err}")
 
     return _imdb_progress
 

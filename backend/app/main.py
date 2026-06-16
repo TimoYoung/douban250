@@ -54,6 +54,11 @@ async def lifespan(app: FastAPI):
     Path("./data").mkdir(parents=True, exist_ok=True)
     init_db()
     scheduler.start()
+
+    # 初始化重试管理器
+    from app.services.retry_manager import init_retry_manager
+    init_retry_manager(scheduler.scheduler)
+
     yield
     # Shutdown
     scheduler.shutdown(wait=False)

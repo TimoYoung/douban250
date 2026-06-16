@@ -90,6 +90,15 @@ def _run_migrations(db):
             "ADD COLUMN duration INTEGER"))
         db.commit()
 
+    # 检查 crawl_logs 表是否有 retry_of 列
+    result = db.execute(text("PRAGMA table_info(crawl_logs)"))
+    columns = {row[1] for row in result}
+    if 'retry_of' not in columns:
+        db.execute(text(
+            "ALTER TABLE crawl_logs "
+            "ADD COLUMN retry_of INTEGER REFERENCES crawl_logs(id)"))
+        db.commit()
+
     # 创建 users 表（多用户认证）
     tables = {row[0] for row in db.execute(
         text("SELECT name FROM sqlite_master WHERE type='table'")

@@ -42,7 +42,7 @@ class CrawlScheduler:
         """Reschedule the top250 crawl job."""
         self._set_setting("cron_expression", cron_expression)
         try:
-            self.scheduler.reschedule_job(self._top250_job_id, trigger=CronTrigger.from_crontab(cron_expression))
+            self.scheduler.reschedule_job(self._top250_job_id, trigger=self._build_cron_trigger(cron_expression))
             logger.info(f"Top250 rescheduled to: {cron_expression}")
         except Exception:
             self._schedule_top250(cron_expression)
@@ -51,7 +51,7 @@ class CrawlScheduler:
         """Reschedule the user watched scrape job."""
         self._set_setting("user_scrape_cron", cron_expression)
         try:
-            self.scheduler.reschedule_job(self._user_job_id, trigger=CronTrigger.from_crontab(cron_expression))
+            self.scheduler.reschedule_job(self._user_job_id, trigger=self._build_cron_trigger(cron_expression))
             logger.info(f"User scrape rescheduled to: {cron_expression}")
         except Exception:
             self._schedule_user(cron_expression)
@@ -69,7 +69,7 @@ class CrawlScheduler:
         """Reschedule the metadata backfill job."""
         self._set_setting("metadata_cron", cron_expression)
         try:
-            self.scheduler.reschedule_job(self._meta_job_id, trigger=CronTrigger.from_crontab(cron_expression))
+            self.scheduler.reschedule_job(self._meta_job_id, trigger=self._build_cron_trigger(cron_expression))
             logger.info(f"Metadata backfill rescheduled to: {cron_expression}")
         except Exception:
             self._schedule_meta(cron_expression)
@@ -78,7 +78,7 @@ class CrawlScheduler:
         """Reschedule the IMDb crawl job."""
         self._set_setting("imdb_cron", cron_expression)
         try:
-            self.scheduler.reschedule_job(self._imdb_job_id, trigger=CronTrigger.from_crontab(cron_expression))
+            self.scheduler.reschedule_job(self._imdb_job_id, trigger=self._build_cron_trigger(cron_expression))
             logger.info(f"IMDb crawl rescheduled to: {cron_expression}")
         except Exception:
             self._schedule_imdb(cron_expression)
@@ -113,62 +113,68 @@ class CrawlScheduler:
         finally:
             db.close()
 
-    def _schedule_top250(self, cron_expression: str):
+    @staticmethod
+    def _convert_cron_dow(dow: str) -> str:
+        """将标准 cron 的 day_of_week 转换为 APScheduler 格式。
+
+        标准 cron: 0=Sun, 1=Mon, 2=Tue, ..., 6=Sat
+        APScheduler: 0=Mon, 1=Tue, 2=Wed, ..., 6=Sun
+        """
+        if dow == "*" or not dow:
+            return dow
+        # 处理数字
+        if dow.isdigit():
+            return str((int(dow) - 1) % 7)
+        # 处理逗号分隔的多个值
+        if "," in dow:
+            return ",".join(CrawlScheduler._convert_cron_dow(v) for v in dow.split(","))
+        # 处理范围 (如 1-5)
+        if "-" in dow and dow.replace("-", "").isdigit():
+            parts = dow.split("-")
+            return f"{(int(parts[0]) - 1) % 7}-{(int(parts[1]) - 1) % 7}"
+        # 命名值 (mon, tue, ...) 直接透传，APScheduler 也识别
+        return dow
+
+    @staticmethod
+    def _build_cron_trigger(cron_expression: str) -> CronTrigger:
+        """从标准 cron 表达式构建 CronTrigger，正确处理 day_of_week 映射。"""
         parts = cron_expression.strip().split()
+        return CronTrigger(
+            minute=parts[0] if len(parts) > 0 else "*",
+            hour=parts[1] if len(parts) > 1 else "*",
+            day=parts[2] if len(parts) > 2 else "*",
+            month=parts[3] if len(parts) > 3 else "*",
+            day_of_week=CrawlScheduler._convert_cron_dow(parts[4]) if len(parts) > 4 else "*",
+        )
+
+    def _schedule_top250(self, cron_expression: str):
         self.scheduler.add_job(
             _run_top250,
-            trigger=CronTrigger(
-                minute=parts[0] if len(parts) > 0 else "*",
-                hour=parts[1] if len(parts) > 1 else "*",
-                day=parts[2] if len(parts) > 2 else "*",
-                month=parts[3] if len(parts) > 3 else "*",
-                day_of_week=parts[4] if len(parts) > 4 else "*",
-            ),
+            trigger=self._build_cron_trigger(cron_expression),
             id=self._top250_job_id,
             replace_existing=True,
         )
 
     def _schedule_user(self, cron_expression: str):
-        parts = cron_expression.strip().split()
         self.scheduler.add_job(
             _run_user_scrape,
-            trigger=CronTrigger(
-                minute=parts[0] if len(parts) > 0 else "*",
-                hour=parts[1] if len(parts) > 1 else "*",
-                day=parts[2] if len(parts) > 2 else "*",
-                month=parts[3] if len(parts) > 3 else "*",
-                day_of_week=parts[4] if len(parts) > 4 else "*",
-            ),
+            trigger=self._build_cron_trigger(cron_expression),
             id=self._user_job_id,
             replace_existing=True,
         )
 
     def _schedule_meta(self, cron_expression: str):
-        parts = cron_expression.strip().split()
         self.scheduler.add_job(
             _run_metadata,
-            trigger=CronTrigger(
-                minute=parts[0] if len(parts) > 0 else "*",
-                hour=parts[1] if len(parts) > 1 else "*",
-                day=parts[2] if len(parts) > 2 else "*",
-                month=parts[3] if len(parts) > 3 else "*",
-                day_of_week=parts[4] if len(parts) > 4 else "*",
-            ),
+            trigger=self._build_cron_trigger(cron_expression),
             id=self._meta_job_id,
             replace_existing=True,
         )
 
     def _schedule_imdb(self, cron_expression: str):
-        parts = cron_expression.strip().split()
         self.scheduler.add_job(
             _run_imdb,
-            trigger=CronTrigger(
-                minute=parts[0] if len(parts) > 0 else "*",
-                hour=parts[1] if len(parts) > 1 else "*",
-                day=parts[2] if len(parts) > 2 else "*",
-                month=parts[3] if len(parts) > 3 else "*",
-                day_of_week=parts[4] if len(parts) > 4 else "*",
-            ),
+            trigger=self._build_cron_trigger(cron_expression),
             id=self._imdb_job_id,
             replace_existing=True,
         )

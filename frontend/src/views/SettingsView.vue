@@ -679,9 +679,19 @@
               </div>
             </div>
 
+            <div class="source-tabs backup-source-tabs">
+              <button
+                v-for="s in backupSourceOptions"
+                :key="s.value"
+                class="source-tab"
+                :class="{ active: backupSourceFilter === s.value }"
+                @click="backupSourceFilter = s.value"
+              >{{ s.label }}<span v-if="s.count != null" class="tab-count">{{ s.count }}</span></button>
+            </div>
+
             <div class="version-checkbox-list">
               <label
-                v-for="v in backupVersions"
+                v-for="v in filteredBackupVersions"
                 :key="v.id"
                 class="version-checkbox"
               >
@@ -925,6 +935,23 @@ const sourceOptions = computed(() => {
   ]
 })
 
+const backupSourceOptions = computed(() => {
+  const all = backupVersions.value
+  const doubanCount = all.filter(v => (v.source || 'douban') !== 'imdb').length
+  const imdbCount = all.filter(v => v.source === 'imdb').length
+  return [
+    { value: 'all', label: '全部', count: all.length },
+    { value: 'douban', label: '豆瓣', count: doubanCount },
+    { value: 'imdb', label: 'IMDb', count: imdbCount },
+  ]
+})
+
+const filteredBackupVersions = computed(() => {
+  if (backupSourceFilter.value === 'all') return backupVersions.value
+  if (backupSourceFilter.value === 'imdb') return backupVersions.value.filter(v => v.source === 'imdb')
+  return backupVersions.value.filter(v => (v.source || 'douban') !== 'imdb')
+})
+
 const isCrawling = computed(() => settingsStore.crawlProgress?.active || false)
 const isUserSyncing = computed(() => settingsStore.crawlProgress?.active && settingsStore.crawlProgress?.job_type === 'user_watched')
 const isImdbCrawling = computed(() => settingsStore.imdbProgress?.status === 'running' || false)
@@ -954,6 +981,7 @@ const deleteUserModal = ref({ visible: false, user: null, loading: false })
 // Backup & Restore
 const backupVersions = ref([])
 const selectedVersionIds = ref([])
+const backupSourceFilter = ref('all')
 const backupProgress = ref({ active: false, type: '', percent: 0, detail: '', message: '', elapsed_seconds: 0 })
 const backupResult = ref(null)
 const backupFiles = ref([])
@@ -1317,18 +1345,26 @@ async function loadBackupData() {
     ])
     backupVersions.value = versionsRes.data.versions
     backupFiles.value = filesRes.data.files
+    backupSourceFilter.value = 'all'
   } catch (e) {
     console.error('Failed to load backup data:', e)
   }
 }
 
 function selectAllVersions() {
-  selectedVersionIds.value = backupVersions.value.map(v => v.id)
+  const filteredIds = filteredBackupVersions.value.map(v => v.id)
+  // 合并已有的其他source选中 + 当前筛选下的全部
+  const otherSelected = selectedVersionIds.value.filter(id => !filteredIds.includes(id))
+  selectedVersionIds.value = [...otherSelected, ...filteredIds]
 }
 
 function invertSelection() {
-  const allIds = backupVersions.value.map(v => v.id)
-  selectedVersionIds.value = allIds.filter(id => !selectedVersionIds.value.includes(id))
+  const filteredIds = new Set(filteredBackupVersions.value.map(v => v.id))
+  const otherSelected = selectedVersionIds.value.filter(id => !filteredIds.has(id))
+  const invertedFiltered = filteredBackupVersions.value
+    .filter(v => !selectedVersionIds.value.includes(v.id))
+    .map(v => v.id)
+  selectedVersionIds.value = [...otherSelected, ...invertedFiltered]
 }
 
 function formatSize(bytes) {
@@ -1822,7 +1858,12 @@ async function onDeleteConfirm() {
   align-items: center;
   font-size: 13px;
   color: #3f3f46;
+  margin-bottom: 8px;
+}
+
+.backup-source-tabs {
   margin-bottom: 12px;
+  margin-left: 0;
 }
 
 .select-actions {

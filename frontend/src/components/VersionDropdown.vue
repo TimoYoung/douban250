@@ -8,26 +8,35 @@
       <div v-if="open && !disabled" class="vd-panel">
         <div class="vd-scroll">
           <div
-            v-for="([year, versions]) in grouped"
+            v-for="([year, months]) in grouped"
             :key="year"
             class="vd-year"
           >
             <div class="vd-year-header" @click="toggleYear(year)">
-              <span class="vd-year-arrow" :class="{ expanded: expandedYears.has(year) }">▸</span>
+              <span class="vd-year-arrow" :class="{ expanded: expandedMonths.has(year) }">▸</span>
               {{ year }}年
-              <span class="vd-year-count">({{ versions.length }})</span>
+              <span class="vd-year-count">({{ yearCount(months) }})</span>
             </div>
-            <div v-if="expandedYears.has(year)" class="vd-items">
+            <template v-if="expandedMonths.has(year)">
               <div
-                v-for="v in versions"
-                :key="v.id"
-                class="vd-option"
-                :class="{ selected: modelValue === v.id }"
-                @click="select(v.id)"
+                v-for="([month, versions]) in months"
+                :key="month"
+                class="vd-month"
               >
-                {{ v.tag }}（{{ v.movie_count }}部）
+                <div class="vd-month-header">{{ month }}</div>
+                <div class="vd-items">
+                  <div
+                    v-for="v in versions"
+                    :key="v.id"
+                    class="vd-option"
+                    :class="{ selected: modelValue === v.id }"
+                    @click="select(v.id)"
+                  >
+                    {{ v.tag }}（{{ v.movie_count }}部）
+                  </div>
+                </div>
               </div>
-            </div>
+            </template>
           </div>
         </div>
         <div v-if="grouped.length > 1" class="vd-footer" @click="toggleAll">
@@ -50,51 +59,100 @@ const emit = defineEmits(['update:modelValue'])
 
 const open = ref(false)
 const containerRef = ref(null)
-const expandedYears = ref(new Set())
+const expandedMonths = ref(new Map()) // year -> Set(month)
 const allExpanded = ref(false)
 
-const currentYear = new Date().getFullYear().toString()
+const MONTH_NAMES = Array.from({ length: 12 }, (_, i) => `${i + 1}月`)
+const now = new Date()
+const currentYear = now.getFullYear().toString()
+const currentMonth = MONTH_NAMES[now.getMonth()]
 
+// grouped: [year, [month, versions[]][]]
 const grouped = computed(() => {
-  const groups = {}
+  const yearMap = {}
   for (const v of props.versions) {
     const year = v.tag?.slice(0, 4) || '未知'
-    if (!groups[year]) groups[year] = []
-    groups[year].push(v)
+    const month = v.tag?.slice(5, 7) ? `${Number(v.tag.slice(5, 7))}月` : '未知'
+    if (!yearMap[year]) yearMap[year] = {}
+    if (!yearMap[year][month]) yearMap[year][month] = []
+    yearMap[year][month].push(v)
   }
-  const years = Object.keys(groups).sort((a, b) => {
+  const years = Object.keys(yearMap).sort((a, b) => {
     if (a === '未知') return 1
     if (b === '未知') return -1
     return Number(b) - Number(a)
   })
-  return years.map(year => [year, groups[year].sort((a, b) => b.tag.localeCompare(a.tag))])
+  return years.map(year => {
+    const monthKeys = Object.keys(yearMap[year]).sort((a, b) => {
+      if (a === '未知') return 1
+      if (b === '未知') return -1
+      return Number(b.replace('月', '')) - Number(a.replace('月', ''))
+    })
+    const months = monthKeys.map(m => {
+      const sorted = yearMap[year][m].sort((a, b) => b.tag.localeCompare(a.tag))
+      return [m, sorted]
+    })
+    return [year, months]
+  })
 })
 
-function initExpanded() {
-  const years = grouped.value.map(([y]) => y)
-  expandedYears.value = new Set(years.filter(y => y === currentYear))
+function yearCount(months) {
+  return months.reduce((sum, item) => sum + item[1].length, 0)
+}
+
+function initExpanded(targetYear, targetMonth) {
+  const map = new Map()
+  map.set(targetYear, new Set([targetMonth]))
+  expandedMonths.value = map
   allExpanded.value = false
 }
 
-watch(() => props.versions, initExpanded, { immediate: true })
+watch(() => props.versions, () => {
+  if (props.modelValue != null) {
+    const v = props.versions.find(v => v.id === props.modelValue)
+    if (v) {
+      const y = v.tag?.slice(0, 4) || currentYear
+      const m = v.tag?.slice(5, 7) ? `${Number(v.tag.slice(5, 7))}月` : currentMonth
+      initExpanded(y, m)
+      return
+    }
+  }
+  initExpanded(currentYear, currentMonth)
+}, { immediate: true })
 
 function toggle() {
   open.value = !open.value
 }
 
 function toggleYear(year) {
-  const s = new Set(expandedYears.value)
-  if (s.has(year)) s.delete(year)
-  else s.add(year)
-  expandedYears.value = s
-  allExpanded.value = grouped.value.every(([y]) => s.has(y))
+  const map = new Map(expandedMonths.value)
+  if (map.has(year)) {
+    map.delete(year)
+  } else {
+    map.set(year, new Set(grouped.value.find(([y]) => y === year)?.[1].map(([m]) => m) || []))
+  }
+  expandedMonths.value = map
+  allExpanded.value = grouped.value.every(([y]) => map.has(y))
 }
 
 function toggleAll() {
   if (allExpanded.value) {
-    initExpanded()
+    if (props.modelValue != null) {
+      const v = props.versions.find(v => v.id === props.modelValue)
+      if (v) {
+        const y = v.tag?.slice(0, 4) || currentYear
+        const m = v.tag?.slice(5, 7) ? `${Number(v.tag.slice(5, 7))}月` : currentMonth
+        initExpanded(y, m)
+        return
+      }
+    }
+    initExpanded(currentYear, currentMonth)
   } else {
-    expandedYears.value = new Set(grouped.value.map(([y]) => y))
+    const map = new Map()
+    for (const [year, months] of grouped.value) {
+      map.set(year, new Set(months.map(([m]) => m)))
+    }
+    expandedMonths.value = map
     allExpanded.value = true
   }
 }
@@ -157,6 +215,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
 
 .vd-scroll { max-height: 360px; overflow-y: auto; }
 
+.vd-year { position: relative; }
+
 .vd-year-header {
   display: flex;
   align-items: center;
@@ -165,18 +225,30 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
   font-size: 12px;
   font-weight: 600;
   color: #6366f1;
-  background: #f8f8fa;
+  background: #f0f0f4;
   cursor: pointer;
   user-select: none;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
 }
-.vd-year-header:hover { background: #f0f0f4; }
+.vd-year-header:hover { background: #e8e8ee; }
 
 .vd-year-arrow { font-size: 10px; transition: transform 0.2s; }
 .vd-year-arrow.expanded { transform: rotate(90deg); }
 .vd-year-count { color: #a1a1aa; font-weight: 400; margin-left: 2px; }
+
+.vd-month-header {
+  padding: 5px 12px 5px 20px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #71717a;
+  background: #f8f8fa;
+  user-select: none;
+  position: sticky;
+  top: 33px;
+  z-index: 1;
+}
 
 .vd-items { padding: 2px 0; }
 

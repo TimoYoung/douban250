@@ -167,16 +167,12 @@ class RetryManager:
             if job_type == "top250":
                 from app.services.crawler import crawl_top250
                 result = crawl_top250()
-                logger.info(f"Retry succeeded for {job_type}: {result}")
-                # 成功后清除重试状态
-                self._clear_retry_state(job_type)
+                self._handle_retry_result(job_type, result)
 
             elif job_type == "imdb":
                 from app.services.imdb_crawler import crawl_imdb_top250
-                result = crawl_imdb_top250()
-                logger.info(f"Retry succeeded for {job_type}: {result}")
-                # 成功后清除重试状态
-                self._clear_retry_state(job_type)
+                result = crawl_imdb_top250(SessionLocal)
+                self._handle_retry_result(job_type, result)
 
             else:
                 logger.error(f"Unknown job type for retry: {job_type}")
@@ -186,6 +182,17 @@ class RetryManager:
             logger.error(f"Retry failed for {job_type}: {e}")
             # 重新安排重试
             self.schedule_retry(job_type, str(e))
+
+    def _handle_retry_result(self, job_type: str, result: dict):
+        """处理重试结果：成功则清除状态，失败则重新调度。"""
+        status = result.get("status", "") if isinstance(result, dict) else ""
+        if status == "error":
+            error_msg = result.get("message", "Unknown error")
+            logger.error(f"Retry failed for {job_type}: {error_msg}")
+            self.schedule_retry(job_type, error_msg)
+        else:
+            logger.info(f"Retry succeeded for {job_type}: {result}")
+            self._clear_retry_state(job_type)
 
     def cancel_retry(self, job_type: str) -> bool:
         """

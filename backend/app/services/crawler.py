@@ -213,13 +213,6 @@ def crawl_top250() -> dict:
         db.commit()
         crawl_progress.update({"phase": "done", "active": False, "message": f"爬取失败: {e}"})
 
-        # 安排重试
-        try:
-            retry_mgr = _get_retry_manager()
-            retry_mgr.schedule_retry("top250", str(e), log.id)
-        except Exception as retry_err:
-            logger.error(f"Failed to schedule retry: {retry_err}")
-
         raise
     finally:
         db.close()

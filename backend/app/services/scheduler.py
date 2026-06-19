@@ -204,6 +204,10 @@ def _run_top250():
         logger.info(f"Top 250 crawl completed: {result}")
     except Exception as e:
         logger.error(f"Top 250 crawl failed: {e}")
+        try:
+            get_retry_manager().schedule_retry("top250", str(e))
+        except Exception as retry_err:
+            logger.error(f"Failed to schedule retry: {retry_err}")
 
 
 def _run_user_scrape():
@@ -276,8 +280,17 @@ def _run_imdb():
     try:
         result = crawl_imdb_top250(SessionLocal)
         logger.info(f"IMDb crawl completed: {result}")
+        if isinstance(result, dict) and result.get("status") == "error":
+            try:
+                get_retry_manager().schedule_retry("imdb", result.get("message", "Unknown error"))
+            except Exception as retry_err:
+                logger.error(f"Failed to schedule retry: {retry_err}")
     except Exception as e:
         logger.error(f"IMDb crawl failed: {e}")
+        try:
+            get_retry_manager().schedule_retry("imdb", str(e))
+        except Exception as retry_err:
+            logger.error(f"Failed to schedule retry: {retry_err}")
 
 
 scheduler = CrawlScheduler()

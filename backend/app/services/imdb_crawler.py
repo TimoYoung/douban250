@@ -61,6 +61,7 @@ def fetch_imdb_top250() -> list[dict]:
     """使用 Playwright 爬取 IMDb Top 250 页面，返回电影列表。"""
     import json
     from playwright.sync_api import sync_playwright
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
     movies = []
 
@@ -82,10 +83,16 @@ def fetch_imdb_top250() -> list[dict]:
         try:
             page.wait_for_selector(
                 "li.ipc-metadata-list-summary-item", timeout=30000)
-        except Exception:
-            page.wait_for_timeout(10000)
-            page.wait_for_selector(
-                "li.ipc-metadata-list-summary-item", timeout=30000)
+        except Exception as e:
+            logger.warning(f"Selector wait failed: {e}, retrying...")
+            try:
+                page.wait_for_timeout(10000)
+                page.wait_for_selector(
+                    "li.ipc-metadata-list-summary-item", timeout=30000)
+            except Exception as e2:
+                if not isinstance(e2, PlaywrightTimeout):
+                    raise
+                logger.warning(f"Selector retry also timed out, falling back to data extraction")
 
         # 从 __NEXT_DATA__ 提取（最可靠）
         next_data_raw = page.evaluate("""
@@ -751,13 +758,6 @@ def crawl_imdb_top250(db_factory) -> dict:
     except Exception as e:
         logger.exception("IMDb crawl failed")
         _update_progress(status="error", message=f"爬取失败: {e}")
-
-        # 安排重试
-        try:
-            retry_mgr = _get_retry_manager()
-            retry_mgr.schedule_retry("imdb", str(e))
-        except Exception as retry_err:
-            logger.error(f"Failed to schedule retry: {retry_err}")
 
     return _imdb_progress
 

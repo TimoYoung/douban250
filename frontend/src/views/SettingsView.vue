@@ -230,10 +230,22 @@
               >{{ s.label }}<span v-if="s.count != null" class="tab-count">{{ s.count }}</span></button>
             </div>
           </div>
+          <div v-if="isAdmin && selectedVersionIds.length > 0" class="backup-toolbar">
+            <span class="backup-count">已选 {{ selectedVersionIds.length }} 个版本</span>
+            <button class="btn-link" @click="selectAllVersions">全选</button>
+            <span class="sep">|</span>
+            <button class="btn-link" @click="invertSelection">反选</button>
+            <button class="btn btn-dark btn-sm" @click="onCreateBackup" :disabled="backupProgress.active">
+              创建备份
+            </button>
+          </div>
           <div class="version-table-wrap">
             <table class="version-table">
               <thead>
                 <tr>
+                  <th v-if="isAdmin" class="th-checkbox">
+                    <input type="checkbox" :checked="isAllPageSelected" @change="togglePageSelection" />
+                  </th>
                   <th class="th-sortable" @click="toggleSort('tag')">
                     版本日期
                     <span class="sort-icon" v-if="sortField === 'tag'">{{ sortDir === 'asc' ? '↑' : '↓' }}</span>
@@ -251,6 +263,9 @@
               </thead>
               <tbody>
                 <tr v-for="v in pagedVersions" :key="v.id">
+                  <td v-if="isAdmin">
+                    <input type="checkbox" :value="v.id" v-model="selectedVersionIds" />
+                  </td>
                   <td>
                     <template v-if="editingId === v.id">
                       <input v-model="editTag" type="date" class="edit-input" @keyup.enter="onSaveEdit(v.id)" @keyup.escape="cancelEdit" />
@@ -297,6 +312,34 @@
             @update:page="versionPage = $event"
             @update:pageSize="onVersionPageSizeChange"
           />
+
+          <!-- 备份进度 -->
+          <div v-if="isAdmin && backupProgress.active && backupProgress.type === 'backup'" class="backup-progress">
+            <div class="progress-header">
+              <span class="progress-title">正在备份...</span>
+              <span class="progress-percent">{{ backupProgress.percent }}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: backupProgress.percent + '%' }"></div>
+            </div>
+            <div class="progress-detail">
+              <span>{{ backupProgress.detail || backupProgress.message }}</span>
+              <span class="progress-time">已耗时 {{ formatTime(backupProgress.elapsed_seconds) }}</span>
+            </div>
+          </div>
+
+          <!-- 备份完成 -->
+          <div v-else-if="isAdmin && backupResult && backupResult.success" class="backup-result">
+            <div class="result-icon">✅</div>
+            <div class="result-info">
+              <p class="result-title">备份成功！</p>
+              <p>文件：{{ backupResult.filename }}</p>
+              <p>大小：{{ formatSize(backupResult.file_size) }}</p>
+              <p>内容：{{ backupResult.version_count }} 个版本、{{ backupResult.movie_count }} 部电影、{{ backupResult.poster_count }} 张海报</p>
+              <p>耗时：{{ backupResult.elapsed_seconds }} 秒</p>
+            </div>
+            <button class="btn btn-outline" @click="backupResult = null">关闭</button>
+          </div>
         </div>
       </div>
     </div>
@@ -626,104 +669,9 @@
       </div>
     </div>
 
-    <!-- Section: 备份与恢复 (admin only) -->
+    <!-- Section: 恢复备份 (admin only) -->
     <div class="section" v-if="isAdmin">
-      <h4 class="section-title">备份与恢复</h4>
-
-      <!-- 备份卡片 -->
-      <div class="card">
-        <div class="card-pad">
-          <div class="card-head">
-            <div class="card-icon icon-emerald">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            </div>
-            <h3>创建备份</h3>
-          </div>
-
-          <!-- 备份进度 -->
-          <div v-if="backupProgress.active && backupProgress.type === 'backup'" class="backup-progress">
-            <div class="progress-header">
-              <span class="progress-title">正在备份...</span>
-              <span class="progress-percent">{{ backupProgress.percent }}%</span>
-            </div>
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: backupProgress.percent + '%' }"></div>
-            </div>
-            <div class="progress-detail">
-              <span>{{ backupProgress.detail || backupProgress.message }}</span>
-              <span class="progress-time">已耗时 {{ formatTime(backupProgress.elapsed_seconds) }}</span>
-            </div>
-          </div>
-
-          <!-- 备份完成 -->
-          <div v-else-if="backupResult && backupResult.success" class="backup-result">
-            <div class="result-icon">✅</div>
-            <div class="result-info">
-              <p class="result-title">备份成功！</p>
-              <p>文件：{{ backupResult.filename }}</p>
-              <p>大小：{{ formatSize(backupResult.file_size) }}</p>
-              <p>内容：{{ backupResult.version_count }} 个版本、{{ backupResult.movie_count }} 部电影、{{ backupResult.poster_count }} 张海报</p>
-              <p>耗时：{{ backupResult.elapsed_seconds }} 秒</p>
-            </div>
-            <button class="btn btn-outline" @click="backupResult = null">关闭</button>
-          </div>
-
-          <!-- 版本选择 -->
-          <div v-else class="backup-form">
-            <div class="backup-select-header">
-              <span>选择要备份的版本：</span>
-              <div class="select-actions">
-                <button class="btn-link" @click="selectAllVersions">全选</button>
-                <span class="sep">|</span>
-                <button class="btn-link" @click="invertSelection">反选</button>
-              </div>
-            </div>
-
-            <div class="source-tabs backup-source-tabs">
-              <button
-                v-for="s in backupSourceOptions"
-                :key="s.value"
-                class="source-tab"
-                :class="{ active: backupSourceFilter === s.value }"
-                @click="backupSourceFilter = s.value"
-              >{{ s.label }}<span v-if="s.count != null" class="tab-count">{{ s.count }}</span></button>
-            </div>
-
-            <div class="version-checkbox-list">
-              <label
-                v-for="v in filteredBackupVersions"
-                :key="v.id"
-                class="version-checkbox"
-              >
-                <input
-                  type="checkbox"
-                  :value="v.id"
-                  v-model="selectedVersionIds"
-                />
-                <span class="checkbox-label">
-                  <span class="source-badge" :class="v.source === 'imdb' ? 'source-imdb' : 'source-douban'">
-                    {{ v.source === 'imdb' ? 'IMDb' : '豆瓣' }}
-                  </span>
-                  <span>{{ v.tag }}</span>
-                  <span class="movie-count">({{ v.movie_count }}部)</span>
-                </span>
-              </label>
-            </div>
-
-            <div class="backup-summary" v-if="selectedVersionIds.length > 0">
-              已选 {{ selectedVersionIds.length }} 个版本
-            </div>
-
-            <button
-              class="btn btn-dark w-full"
-              @click="onCreateBackup"
-              :disabled="selectedVersionIds.length === 0 || backupProgress.active"
-            >
-              开始备份
-            </button>
-          </div>
-        </div>
-      </div>
+      <h4 class="section-title">恢复备份</h4>
 
       <!-- 恢复卡片 -->
       <div class="card">
@@ -892,7 +840,7 @@ import { useSettingsStore } from '../stores/settings.js'
 import { useAuthStore } from '../stores/auth.js'
 import {
   fetchDeletePreview, fetchCookieCheck,
-  fetchBackupVersions, createBackup, fetchBackupProgress,
+  createBackup, fetchBackupProgress,
   fetchBackupFiles, restoreBackup, deleteBackup as apiDeleteBackup,
 } from '../api/index.js'
 import PaginationBar from '../components/PaginationBar.vue'
@@ -935,23 +883,6 @@ const sourceOptions = computed(() => {
   ]
 })
 
-const backupSourceOptions = computed(() => {
-  const all = backupVersions.value
-  const doubanCount = all.filter(v => (v.source || 'douban') !== 'imdb').length
-  const imdbCount = all.filter(v => v.source === 'imdb').length
-  return [
-    { value: 'all', label: '全部', count: all.length },
-    { value: 'douban', label: '豆瓣', count: doubanCount },
-    { value: 'imdb', label: 'IMDb', count: imdbCount },
-  ]
-})
-
-const filteredBackupVersions = computed(() => {
-  if (backupSourceFilter.value === 'all') return backupVersions.value
-  if (backupSourceFilter.value === 'imdb') return backupVersions.value.filter(v => v.source === 'imdb')
-  return backupVersions.value.filter(v => (v.source || 'douban') !== 'imdb')
-})
-
 const isCrawling = computed(() => settingsStore.crawlProgress?.active || false)
 const isUserSyncing = computed(() => settingsStore.crawlProgress?.active && settingsStore.crawlProgress?.job_type === 'user_watched')
 const isImdbCrawling = computed(() => settingsStore.imdbProgress?.status === 'running' || false)
@@ -979,9 +910,7 @@ const editUserForm = ref({ role: '', is_active: true, password: '', douban_user_
 const deleteUserModal = ref({ visible: false, user: null, loading: false })
 
 // Backup & Restore
-const backupVersions = ref([])
 const selectedVersionIds = ref([])
-const backupSourceFilter = ref('all')
 const backupProgress = ref({ active: false, type: '', percent: 0, detail: '', message: '', elapsed_seconds: 0 })
 const backupResult = ref(null)
 const backupFiles = ref([])
@@ -1339,32 +1268,41 @@ async function onSaveUser(userId) {
 // Backup & Restore functions
 async function loadBackupData() {
   try {
-    const [versionsRes, filesRes] = await Promise.all([
-      fetchBackupVersions(),
-      fetchBackupFiles(),
-    ])
-    backupVersions.value = versionsRes.data.versions
+    const filesRes = await fetchBackupFiles()
     backupFiles.value = filesRes.data.files
-    backupSourceFilter.value = 'all'
   } catch (e) {
     console.error('Failed to load backup data:', e)
   }
 }
 
 function selectAllVersions() {
-  const filteredIds = filteredBackupVersions.value.map(v => v.id)
-  // 合并已有的其他source选中 + 当前筛选下的全部
+  const filteredIds = sortedVersions.value.map(v => v.id)
   const otherSelected = selectedVersionIds.value.filter(id => !filteredIds.includes(id))
   selectedVersionIds.value = [...otherSelected, ...filteredIds]
 }
 
 function invertSelection() {
-  const filteredIds = new Set(filteredBackupVersions.value.map(v => v.id))
+  const filteredIds = new Set(sortedVersions.value.map(v => v.id))
   const otherSelected = selectedVersionIds.value.filter(id => !filteredIds.has(id))
-  const invertedFiltered = filteredBackupVersions.value
+  const invertedFiltered = sortedVersions.value
     .filter(v => !selectedVersionIds.value.includes(v.id))
     .map(v => v.id)
   selectedVersionIds.value = [...otherSelected, ...invertedFiltered]
+}
+
+const isAllPageSelected = computed(() => {
+  if (pagedVersions.value.length === 0) return false
+  return pagedVersions.value.every(v => selectedVersionIds.value.includes(v.id))
+})
+
+function togglePageSelection() {
+  const pageIds = pagedVersions.value.map(v => v.id)
+  if (isAllPageSelected.value) {
+    selectedVersionIds.value = selectedVersionIds.value.filter(id => !pageIds.includes(id))
+  } else {
+    const otherSelected = selectedVersionIds.value.filter(id => !pageIds.includes(id))
+    selectedVersionIds.value = [...otherSelected, ...pageIds]
+  }
 }
 
 function formatSize(bytes) {
@@ -1754,6 +1692,32 @@ async function onDeleteConfirm() {
   padding: 0 10px;
   font-size: 11px;
 }
+.backup-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.backup-count {
+  color: #6366f1;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.th-checkbox {
+  width: 36px;
+  text-align: center !important;
+}
+.th-checkbox input[type="checkbox"],
+.version-table td:first-child input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
 
 .stat-row { display: flex; align-items: center; gap: 12px; font-size: 11px; color: #a1a1aa; }
 .stat-green { color: #10b981; font-weight: 500; }
@@ -1852,26 +1816,6 @@ async function onDeleteConfirm() {
 }
 
 /* === Backup & Restore === */
-.backup-select-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  color: #3f3f46;
-  margin-bottom: 8px;
-}
-
-.backup-source-tabs {
-  margin-bottom: 12px;
-  margin-left: 0;
-}
-
-.select-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .btn-link {
   background: none;
   border: none;
@@ -1887,57 +1831,6 @@ async function onDeleteConfirm() {
 
 .sep {
   color: #e4e4e7;
-}
-
-.version-checkbox-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 8px 0;
-}
-
-.version-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid #e4e4e7;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.version-checkbox:hover {
-  border-color: #d4d4d8;
-  background: #fafafa;
-}
-
-.version-checkbox input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: #6366f1;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.movie-count {
-  color: #a1a1aa;
-  font-size: 12px;
-}
-
-.backup-summary {
-  font-size: 12px;
-  color: #71717a;
-  padding: 8px 0;
-  border-top: 1px solid #f4f4f5;
-  margin-top: 8px;
 }
 
 .backup-progress {
@@ -2019,12 +1912,6 @@ async function onDeleteConfirm() {
   font-size: 12px;
   color: #52525b;
   margin-bottom: 4px;
-}
-
-.backup-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .empty-backup {

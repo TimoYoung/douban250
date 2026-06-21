@@ -238,12 +238,26 @@
               恢复备份
             </button>
           </div>
-          <div v-if="isAdmin && selectedVersionIds.length > 0" class="backup-toolbar">
-            <span class="backup-count">已选 {{ selectedVersionIds.length }} 个版本</span>
-            <button class="btn-link" @click="selectAllVersions">全选</button>
-            <span class="sep">|</span>
-            <button class="btn-link" @click="invertSelection">反选</button>
-            <button class="btn btn-dark btn-sm" @click="onCreateBackup" :disabled="backupProgress.active">
+          <div v-if="isAdmin" class="backup-toolbar">
+            <span v-if="selectedVersionIds.length > 0" class="backup-count">
+              已选 {{ selectedVersionIds.length }}<span v-if="selectedVersionIds.length < sortedVersions.length">/{{ sortedVersions.length }}</span> 个版本
+            </span>
+            <button
+              v-if="selectedVersionIds.length > 0 && selectedVersionIds.length < sortedVersions.length"
+              class="btn-link"
+              @click="selectAllVersions"
+            >
+              选择全部 {{ sortedVersions.length }} 个版本
+            </button>
+            <button
+              v-if="selectedVersionIds.length > 0"
+              class="btn-link"
+              @click="selectedVersionIds = []"
+            >
+              清除选择
+            </button>
+            <div class="toolbar-spacer"></div>
+            <button class="btn btn-dark btn-sm" @click="onCreateBackup" :disabled="selectedVersionIds.length === 0 || backupProgress.active">
               创建备份
             </button>
           </div>
@@ -1175,15 +1189,6 @@ function selectAllVersions() {
   selectedVersionIds.value = [...otherSelected, ...filteredIds]
 }
 
-function invertSelection() {
-  const filteredIds = new Set(sortedVersions.value.map(v => v.id))
-  const otherSelected = selectedVersionIds.value.filter(id => !filteredIds.has(id))
-  const invertedFiltered = sortedVersions.value
-    .filter(v => !selectedVersionIds.value.includes(v.id))
-    .map(v => v.id)
-  selectedVersionIds.value = [...otherSelected, ...invertedFiltered]
-}
-
 const isAllPageSelected = computed(() => {
   if (pagedVersions.value.length === 0) return false
   return pagedVersions.value.every(v => selectedVersionIds.value.includes(v.id))
@@ -1590,6 +1595,7 @@ async function onDeleteConfirm() {
   font-weight: 600;
   margin-right: 4px;
 }
+.toolbar-spacer { flex: 1; }
 .th-checkbox {
   width: 36px;
   text-align: center !important;

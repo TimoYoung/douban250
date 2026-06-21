@@ -229,14 +229,6 @@
                 @click="versionSourceFilter = s.value; versionPage = 1"
               >{{ s.label }}<span v-if="s.count != null" class="tab-count">{{ s.count }}</span></button>
             </div>
-            <button
-              v-if="isAdmin"
-              class="btn btn-outline btn-sm restore-trigger"
-              @click="showRestoreModal = true"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-              恢复备份
-            </button>
           </div>
           <div v-if="isAdmin" class="backup-toolbar">
             <span v-if="selectedVersionIds.length > 0" class="backup-count">
@@ -257,6 +249,10 @@
               清除选择
             </button>
             <div class="toolbar-spacer"></div>
+            <button class="btn btn-outline btn-sm" @click="showRestoreModal = true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+              恢复备份
+            </button>
             <button class="btn btn-dark btn-sm" @click="onCreateBackup" :disabled="selectedVersionIds.length === 0 || backupProgress.active">
               创建备份
             </button>
@@ -1804,10 +1800,4 @@ async function onDeleteConfirm() {
 }
 
 
-.restore-trigger {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
 </style>

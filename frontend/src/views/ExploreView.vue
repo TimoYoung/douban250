@@ -569,9 +569,14 @@ async function loadMovies() {
     if (durationRange.value[1] < meta.duration_max) params.duration_max = durationRange.value[1]
 
     const { data } = await exploreMovies(params)
-    movies.value = data.items
     total.value = data.total
     totalPages.value = data.total_pages
+    // 当前页超出实际总页数时，自动回退到最后一页
+    if (page.value > totalPages.value && totalPages.value > 0) {
+      page.value = totalPages.value
+      return  // page watcher 会重新触发 loadMovies()
+    }
+    movies.value = data.items
   } catch (e) {
     console.error('Failed to load explore movies:', e)
   } finally {

@@ -171,6 +171,10 @@ function hideDropdown() {
 
 function jumpToVersion(result) {
   showDropdown.value = false
+  // Sync source filter so VersionSelector's filtered list includes the target version
+  if (result.source && result.source !== versionsStore.sourceFilter) {
+    versionsStore.sourceFilter = result.source
+  }
   versionsStore.currentVersionId = result.latest_version_id
   store.page = 1
   loadData()

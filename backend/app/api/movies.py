@@ -50,6 +50,7 @@ def list_movies(
     version_id: int | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    load_all: bool = Query(False, description="是否加载全部数据，忽略 page/page_size"),
     watched_filter: str = Query("all", pattern="^(all|watched|unwatched)$"),
     search: str | None = Query(None),
     db: Session = Depends(get_db),
@@ -88,9 +89,17 @@ def list_movies(
         query = query.filter(~Movie.douban_id.in_(watched_ids))
 
     total = query.count()
-    total_pages = (total + page_size - 1) // page_size
 
-    entries = query.order_by(VersionEntry.rank).offset((page - 1) * page_size).limit(page_size).all()
+    if load_all:
+        entries = query.order_by(VersionEntry.rank).all()
+        effective_page = 1
+        effective_page_size = total
+        total_pages = 1
+    else:
+        total_pages = (total + page_size - 1) // page_size
+        entries = query.order_by(VersionEntry.rank).offset((page - 1) * page_size).limit(page_size).all()
+        effective_page = page
+        effective_page_size = page_size
 
     # Get previous version rank lookup for rank_change
     prev_ranks = _get_previous_ranks(db, version_id)
@@ -121,8 +130,8 @@ def list_movies(
     return PaginatedMovies(
         items=items,
         total=total,
-        page=page,
-        page_size=page_size,
+        page=effective_page,
+        page_size=effective_page_size,
         total_pages=total_pages,
     )
 
@@ -289,6 +298,7 @@ def get_explore_filters(db: Session = Depends(get_db)):
 def explore_movies(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    load_all: bool = Query(False, description="是否加载全部数据，忽略 page/page_size"),
     rating_min: float | None = Query(None, ge=0, le=10),
     rating_max: float | None = Query(None, ge=0, le=10),
     genres: str | None = Query(None, description="逗号分隔的类型列表，如 '剧情,科幻'"),
@@ -362,9 +372,17 @@ def explore_movies(
         query = query.order_by(sort_col.desc().nullslast())
 
     total = query.count()
-    total_pages = (total + page_size - 1) // page_size if total > 0 else 0
 
-    movies = query.offset((page - 1) * page_size).limit(page_size).all()
+    if load_all:
+        movies = query.all()
+        effective_page = 1
+        effective_page_size = total
+        total_pages = 1
+    else:
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        movies = query.offset((page - 1) * page_size).limit(page_size).all()
+        effective_page = page
+        effective_page_size = page_size
 
     # 获取最新版本的排名信息
     latest_version = db.query(Version).order_by(Version.id.desc()).first()
@@ -394,8 +412,8 @@ def explore_movies(
     return PaginatedMovies(
         items=items,
         total=total,
-        page=page,
-        page_size=page_size,
+        page=effective_page,
+        page_size=effective_page_size,
         total_pages=total_pages,
     )
 

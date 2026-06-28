@@ -40,6 +40,7 @@
           <option value="watched">已看过</option>
           <option value="unwatched">未看过</option>
         </select>
+        <span v-if="total > 0" class="total-count">共 {{ total }} 部电影</span>
         <div class="view-toggles">
           <button
             class="view-toggle"
@@ -60,36 +61,24 @@
       </div>
     </div>
 
-    <div v-if="store.loading" class="loading">加载中...</div>
+    <div v-if="isLoading && movies.length === 0" class="loading">加载中...</div>
 
     <template v-else>
       <div v-if="viewMode === 'poster'">
         <div class="movie-grid">
-          <MovieCard v-for="movie in store.movies" :key="movie.id" :movie="movie" />
+          <MovieCard v-for="movie in movies" :key="movie.id" :movie="movie" />
         </div>
-        <PaginationBar
-          :page="store.page"
-          :pageSize="store.pageSize"
-          :totalPages="store.totalPages"
-          :total="store.total"
-          @update:page="onPageChange"
-          @update:pageSize="onPageSizeChange"
-        />
       </div>
 
       <div v-else-if="viewMode === 'list'">
-        <MovieListTable :movies="store.movies" />
-        <PaginationBar
-          :page="store.page"
-          :pageSize="store.pageSize"
-          :totalPages="store.totalPages"
-          :total="store.total"
-          @update:page="onPageChange"
-          @update:pageSize="onPageSizeChange"
-        />
+        <MovieListTable :movies="movies" />
       </div>
 
       <BubbleGrid v-else :movies="store.bubbles" :highlight="searchText" />
+
+      <!-- 无限滚动 sentinel（仅 >500 条时生效，全加载模式下无感） -->
+      <div ref="sentinelRef" class="load-sentinel" />
+      <div v-if="isLoadingMore" class="loading-more">加载更多...</div>
     </template>
   </div>
 </template>
@@ -99,55 +88,74 @@ import { ref, computed, onMounted } from 'vue'
 import { useMoviesStore } from '../stores/movies.js'
 import { useVersionsStore } from '../stores/versions.js'
 import { useAuthStore } from '../stores/auth.js'
+import { useMovieLoader } from '../composables/useMovieLoader.js'
+import { fetchMovies } from '../api/index.js'
 import VersionSelector from '../components/VersionSelector.vue'
 import MovieCard from '../components/MovieCard.vue'
 import MovieListTable from '../components/MovieListTable.vue'
 import BubbleGrid from '../components/BubbleGrid.vue'
-import PaginationBar from '../components/PaginationBar.vue'
 
 const store = useMoviesStore()
 const versionsStore = useVersionsStore()
 const authStore = useAuthStore()
 
+// 电影列表加载（≤500 全加载，>500 无限滚动）
+const {
+  movies, total, isLoading, isLoadingMore,
+  loadMovies, sentinelRef,
+} = useMovieLoader((params) => fetchMovies(params))
+
 const viewMode = computed({
   get: () => store.viewMode,
   set: (val) => { store.viewMode = val },
 })
-const watchedFilter = ref(store.watchedFilter || 'all')
-const searchText = ref(store.search || '')
+const watchedFilter = ref('all')
+const searchText = ref('')
 const showDropdown = ref(false)
 
 const globalResults = computed(() => {
-  // Filter out movies that are already in the current version's movie list
-  const currentIds = new Set(store.movies.map(m => m.douban_id))
+  const currentIds = new Set(movies.value.map(m => m.douban_id))
   return store.globalResults.filter(r => !currentIds.has(r.douban_id))
 })
 
 onMounted(async () => {
   await versionsStore.loadVersions()
-  store.watchedFilter = watchedFilter.value
   await Promise.all([
-    store.loadMovies(versionsStore.currentVersionId),
+    loadMovies(buildParams()),
     store.loadBubbles(versionsStore.currentVersionId),
   ])
 })
 
+/** 构建列表加载参数 */
+function buildParams() {
+  const params = {
+    version_id: versionsStore.currentVersionId,
+    watched_filter: watchedFilter.value,
+  }
+  if (searchText.value) params.search = searchText.value
+  return params
+}
+
+/** 筛选变化统一入口：重载列表 + 滚到顶部 */
+function reloadList() {
+  loadMovies(buildParams())
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 function onVersionChange(id) {
   versionsStore.currentVersionId = id
-  store.page = 1
-  loadData()
+  reloadList()
+  store.loadBubbles(id)
 }
 
 function onSourceChange(source) {
   versionsStore.setSourceFilter(source)
-  store.page = 1
-  loadData()
+  reloadList()
+  store.loadBubbles(versionsStore.currentVersionId)
 }
 
 function onFilterChange() {
-  store.watchedFilter = watchedFilter.value
-  store.page = 1
-  loadData()
+  reloadList()
 }
 
 let searchTimer = null
@@ -155,10 +163,7 @@ let searchTimer = null
 function onSearchInput() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
-    store.search = searchText.value
-    store.page = 1
-    loadData()
-    // Global search for cross-version results
+    reloadList()
     store.searchGlobal(searchText.value).then(() => {
       showDropdown.value = searchText.value.length > 0 && globalResults.value.length > 0
     })
@@ -171,37 +176,13 @@ function hideDropdown() {
 
 function jumpToVersion(result) {
   showDropdown.value = false
-  // Sync source filter so VersionSelector's filtered list includes the target version
   if (result.source && result.source !== versionsStore.sourceFilter) {
     versionsStore.sourceFilter = result.source
   }
   versionsStore.currentVersionId = result.latest_version_id
-  store.page = 1
-  loadData()
-  // Trigger global search again for the new version context
-  store.searchGlobal(searchText.value)
-}
-
-function onSearch() {
-  store.search = searchText.value
-  store.page = 1
-  loadData()
-}
-
-function onPageChange(p) {
-  store.page = p
-  store.loadMovies(versionsStore.currentVersionId)
-}
-
-function onPageSizeChange(size) {
-  store.pageSize = size
-  store.page = 1
-  store.loadMovies(versionsStore.currentVersionId)
-}
-
-function loadData() {
-  store.loadMovies(versionsStore.currentVersionId)
+  reloadList()
   store.loadBubbles(versionsStore.currentVersionId)
+  store.searchGlobal(searchText.value)
 }
 </script>
 
@@ -395,5 +376,22 @@ function loadData() {
   padding: 40px;
   color: #999;
   font-size: 16px;
+}
+
+.total-count {
+  font-size: 12px;
+  color: #a1a1aa;
+  white-space: nowrap;
+}
+
+.load-sentinel {
+  height: 1px;
+}
+
+.loading-more {
+  text-align: center;
+  padding: 16px;
+  color: #a1a1aa;
+  font-size: 13px;
 }
 </style>

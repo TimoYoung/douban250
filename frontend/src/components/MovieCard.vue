@@ -7,7 +7,7 @@
       <span v-else-if="movie.rank_change < 0" class="rank-badge down">▼{{ Math.abs(movie.rank_change) }}</span>
     </div>
     <div class="card-poster">
-      <img v-if="movie.poster_path" :src="`/posters/${movie.poster_path}`" :alt="movie.title" />
+      <img v-if="movie.poster_path" :src="`/posters/${movie.poster_path}`" :alt="movie.title" loading="lazy" />
       <div v-else class="no-poster">无海报</div>
     </div>
     <div class="card-info">

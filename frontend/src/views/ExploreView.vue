@@ -239,7 +239,7 @@
           <span v-if="activeFilterCount > 0" class="filter-badge">{{ activeFilterCount }}</span>
         </button>
         <div class="result-info">
-          <span v-if="!loading">共 <strong>{{ total }}</strong> 部电影</span>
+          <span v-if="!isLoading">共 <strong>{{ total }}</strong> 部电影</span>
           <span v-else class="loading-text">加载中...</span>
         </div>
         <div class="view-toggle">
@@ -294,7 +294,7 @@
           @click="$router.push(`/movies/${movie.douban_id}`)"
         >
           <span class="list-col col-poster">
-            <img v-if="movie.poster_path" :src="`/posters/${movie.poster_path}`" :alt="movie.title" />
+            <img v-if="movie.poster_path" :src="`/posters/${movie.poster_path}`" :alt="movie.title" loading="lazy" />
             <div v-else class="list-no-poster">无</div>
           </span>
           <span class="list-col col-title">
@@ -312,23 +312,15 @@
         </div>
       </div>
 
-      <div v-else-if="!loading" class="empty-state">
+      <div v-else-if="!isLoading" class="empty-state">
         <div class="empty-icon">🎬</div>
         <p>没有找到符合条件的电影</p>
         <button class="reset-btn" @click="resetFilters">重置筛选</button>
       </div>
 
-      <!-- 分页 -->
-      <div class="pagination-wrapper" v-if="totalPages > 1">
-        <PaginationBar
-          :page="page"
-          :pageSize="pageSize"
-          :totalPages="totalPages"
-          :total="total"
-          @update:page="page = $event"
-          @update:pageSize="onPageSizeChange"
-        />
-      </div>
+      <!-- 无限滚动 sentinel（>500 条时自动触发分批加载） -->
+      <div ref="sentinelRef" class="load-sentinel" />
+      <div v-if="isLoadingMore" class="loading-more">加载更多...</div>
     </div>
   </div>
 </template>
@@ -337,13 +329,19 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
+import { useMovieLoader } from '../composables/useMovieLoader.js'
 import { fetchExploreFilters, exploreMovies } from '../api/index.js'
 import MovieCard from '../components/MovieCard.vue'
-import PaginationBar from '../components/PaginationBar.vue'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+
+// ── 电影加载（≤500 全加载，>500 无限滚动） ──
+const {
+  movies, total, isLoading, isLoadingMore,
+  loadMovies, sentinelRef,
+} = useMovieLoader((params) => exploreMovies(params))
 
 // ── 筛选元数据 ──
 const filterMeta = ref({
@@ -366,16 +364,9 @@ const durationRange = ref([0, 300])
 const watchedFilter = ref('all')
 const sortBy = ref('rating')
 const sortOrder = ref('desc')
-const page = ref(1)
-const pageSize = ref(20)
 const filterPanelOpen = ref(false)
 const viewMode = ref('grid')  // 'grid' or 'list'
-
-// ── 结果数据 ──
-const movies = ref([])
-const total = ref(0)
-const totalPages = ref(0)
-const loading = ref(false)
+let isInitializing = true      // 初始化期间跳过 watcher 触发的加载
 
 // ── 选项 ──
 const watchedOptions = [
@@ -480,18 +471,35 @@ function resetFilters() {
   watchedFilter.value = 'all'
   sortBy.value = 'rating'
   sortOrder.value = 'desc'
-  page.value = 1
-  pageSize.value = 20
+  // filter watcher 会自动触发重新加载 + syncToQuery
 }
 
-function onPageSizeChange(newSize) {
-  pageSize.value = newSize
-  page.value = 1  // 切换每页条数时重置到第一页
-  syncToQuery()
-  loadMovies()
+/** 收集当前生效的筛选条件（range/genre/country），buildParams 和 syncToQuery 共用 */
+function collectActiveFilters() {
+  const f = {}
+  const meta = filterMeta.value
+  if (ratingRange.value[0] > meta.rating_min) f.rating_min = ratingRange.value[0].toFixed(1)
+  if (ratingRange.value[1] < meta.rating_max) f.rating_max = ratingRange.value[1].toFixed(1)
+  if (selectedGenres.value.length > 0) f.genres = selectedGenres.value.join(',')
+  if (selectedCountries.value.length > 0) f.countries = selectedCountries.value.join(',')
+  if (yearRange.value[0] > meta.year_min) f.year_min = yearRange.value[0]
+  if (yearRange.value[1] < meta.year_max) f.year_max = yearRange.value[1]
+  if (durationRange.value[0] > meta.duration_min) f.duration_min = durationRange.value[0]
+  if (durationRange.value[1] < meta.duration_max) f.duration_max = durationRange.value[1]
+  return f
 }
 
-// 从 URL 恢复筛选状态
+/** 构建探索页加载参数 */
+function buildParams() {
+  return {
+    ...collectActiveFilters(),
+    sort_by: sortBy.value,
+    sort_order: sortOrder.value,
+    watched_filter: watchedFilter.value,
+  }
+}
+
+// 从 URL 恢复筛选状态（不再恢复分页参数）
 function restoreFromQuery() {
   const q = route.query
   if (q.rating_min) ratingRange.value[0] = parseFloat(q.rating_min)
@@ -505,27 +513,16 @@ function restoreFromQuery() {
   if (q.watched) watchedFilter.value = q.watched
   if (q.sort_by) sortBy.value = q.sort_by
   if (q.sort_order) sortOrder.value = q.sort_order
-  if (q.page) page.value = parseInt(q.page)
-  if (q.page_size) pageSize.value = parseInt(q.page_size)
 }
 
-// 同步筛选状态到 URL
+// 同步筛选状态到 URL（不再包含 page/page_size）
 function syncToQuery() {
-  const q = {}
-  const meta = filterMeta.value
-  if (ratingRange.value[0] > meta.rating_min) q.rating_min = ratingRange.value[0].toFixed(1)
-  if (ratingRange.value[1] < meta.rating_max) q.rating_max = ratingRange.value[1].toFixed(1)
-  if (selectedGenres.value.length > 0) q.genres = selectedGenres.value.join(',')
-  if (selectedCountries.value.length > 0) q.countries = selectedCountries.value.join(',')
-  if (yearRange.value[0] > meta.year_min) q.year_min = yearRange.value[0]
-  if (yearRange.value[1] < meta.year_max) q.year_max = yearRange.value[1]
-  if (durationRange.value[0] > meta.duration_min) q.duration_min = durationRange.value[0]
-  if (durationRange.value[1] < meta.duration_max) q.duration_max = durationRange.value[1]
+  const q = {
+    ...collectActiveFilters(),
+  }
   if (watchedFilter.value !== 'all') q.watched = watchedFilter.value
   if (sortBy.value !== 'rating') q.sort_by = sortBy.value
   if (sortOrder.value !== 'desc') q.sort_order = sortOrder.value
-  if (page.value > 1) q.page = page.value
-  if (pageSize.value !== 20) q.page_size = pageSize.value
   router.replace({ query: q })
 }
 
@@ -533,80 +530,37 @@ async function loadFilters() {
   try {
     const { data } = await fetchExploreFilters()
     filterMeta.value = data
-    // 用元数据初始化范围（如果 URL 没有覆盖的话）
-    if (!route.query.rating_min && !route.query.rating_max) {
-      ratingRange.value = [data.rating_min, data.rating_max]
-    }
-    if (!route.query.year_min && !route.query.year_max) {
-      yearRange.value = [data.year_min, data.year_max]
-    }
-    if (!route.query.duration_min && !route.query.duration_max) {
-      durationRange.value = [data.duration_min, data.duration_max]
-    }
+    // 始终用服务端元数据初始化范围（restoreFromQuery 会在之后覆盖 URL 中指定的值）
+    ratingRange.value = [data.rating_min, data.rating_max]
+    yearRange.value = [data.year_min, data.year_max]
+    durationRange.value = [data.duration_min, data.duration_max]
   } catch (e) {
     console.error('Failed to load explore filters:', e)
-  }
-}
-
-async function loadMovies() {
-  loading.value = true
-  try {
-    const params = {
-      page: page.value,
-      page_size: pageSize.value,
-      sort_by: sortBy.value,
-      sort_order: sortOrder.value,
-      watched_filter: watchedFilter.value,
-    }
-    const meta = filterMeta.value
-    if (ratingRange.value[0] > meta.rating_min) params.rating_min = ratingRange.value[0].toFixed(1)
-    if (ratingRange.value[1] < meta.rating_max) params.rating_max = ratingRange.value[1].toFixed(1)
-    if (selectedGenres.value.length > 0) params.genres = selectedGenres.value.join(',')
-    if (selectedCountries.value.length > 0) params.countries = selectedCountries.value.join(',')
-    if (yearRange.value[0] > meta.year_min) params.year_min = yearRange.value[0]
-    if (yearRange.value[1] < meta.year_max) params.year_max = yearRange.value[1]
-    if (durationRange.value[0] > meta.duration_min) params.duration_min = durationRange.value[0]
-    if (durationRange.value[1] < meta.duration_max) params.duration_max = durationRange.value[1]
-
-    const { data } = await exploreMovies(params)
-    total.value = data.total
-    totalPages.value = data.total_pages
-    // 当前页超出实际总页数时，自动回退到最后一页
-    if (page.value > totalPages.value && totalPages.value > 0) {
-      page.value = totalPages.value
-      return  // page watcher 会重新触发 loadMovies()
-    }
-    movies.value = data.items
-  } catch (e) {
-    console.error('Failed to load explore movies:', e)
-  } finally {
-    loading.value = false
   }
 }
 
 // ── 监听筛选变化（防抖） ──
 let debounceTimer = null
 function debouncedLoad() {
+  if (isInitializing) return  // 初始化期间由 onMounted 统一触发首次加载
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     syncToQuery()
-    loadMovies()
+    loadMovies(buildParams())
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }, 300)
 }
 
 watch([ratingRange, selectedGenres, selectedCountries, yearRange, durationRange, watchedFilter, sortBy, sortOrder], debouncedLoad, { deep: true })
-watch(page, () => {
-  syncToQuery()
-  loadMovies()
-  // 滚动到顶部
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-})
 
 // ── 初始化 ──
+// 用 isInitializing 标记阻止 watcher 在 loadFilters/restoreFromQuery 期间触发重复加载。
+// 显式调用 loadMovies 保证：即使 loadFilters 失败（不修改任何 ref），首次加载仍然发生。
 onMounted(async () => {
   await loadFilters()
   restoreFromQuery()
-  loadMovies()
+  isInitializing = false
+  loadMovies(buildParams())
 })
 </script>
 
@@ -1147,11 +1101,16 @@ onMounted(async () => {
   padding: 8px 24px;
 }
 
-/* ── 分页 ── */
-.pagination-wrapper {
-  margin-top: 24px;
-  display: flex;
-  justify-content: center;
+/* ── 无限滚动 sentinel ── */
+.load-sentinel {
+  height: 1px;
+}
+
+.loading-more {
+  text-align: center;
+  padding: 16px;
+  color: #a1a1aa;
+  font-size: 13px;
 }
 
 /* ── 响应式 ── */

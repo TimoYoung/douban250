@@ -22,6 +22,7 @@ cd frontend
 npm install    # Install dependencies
 npm run dev    # Dev server on :5173, proxies /api + /posters to :8000
 npm run build  # Build to backend/static/
+npm run test:run  # Run vitest unit tests (composables)
 ```
 
 ### Docker
@@ -46,9 +47,10 @@ docker run -d --name douban250 -p 8000:8000 timoyoung/douban250:latest
 Vue 3 Composition API + Pinia + Vue Router
 
 - **`api/index.js`** — Axios 封装，所有后端调用集中在这里
-- **`stores/`** — `movies.js`（电影列表/分页/过滤）、`settings.js`（控制台：爬取/导入/版本管理/账户）、`versions.js`（版本选择/diff）
-- **`views/`** — `MovieListView.vue`（海报/列表/气泡三种视图）、`MovieDetailView.vue`（详情+排名历史图表）、`SettingsView.vue`（控制台：版本管理+数据维护+账户）、`VersionDiffView.vue`（版本对比）
-- **`components/`** — `MovieCard.vue`、`MovieListTable.vue`、`BubbleGrid.vue`、`PaginationBar.vue`、`VersionSelector.vue`、`VersionDiff.vue`、`RankHistoryChart.vue`（ECharts）
+- **`composables/`** — `useMovieLoader.js`（混合加载：≤500 全加载 / >500 无限滚动，含 IntersectionObserver）
+- **`stores/`** — `movies.js`（气泡数据/单部电影详情/全局搜索）、`settings.js`（控制台：爬取/导入/版本管理/账户）、`versions.js`（版本选择/diff）
+- **`views/`** — `MovieListView.vue`（海报/列表/气泡三种视图）、`ExploreView.vue`（多维度筛选探索）、`MovieDetailView.vue`（详情+排名历史图表）、`SettingsView.vue`（控制台：版本管理+数据维护+账户）、`VersionDiffView.vue`（版本对比）
+- **`components/`** — `MovieCard.vue`、`MovieListTable.vue`、`BubbleGrid.vue`、`PaginationBar.vue`（仅 SettingsView 使用）、`VersionSelector.vue`、`VersionDiff.vue`、`RankHistoryChart.vue`（ECharts）
 
 ### 关键数据流
 1. 爬取/导入 → 创建 `Version` + `VersionEntry` 记录 → 新电影自动获取详情

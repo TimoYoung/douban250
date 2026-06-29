@@ -19,10 +19,13 @@
           @click="$router.push(`/movies/${movie.douban_id}`)"
         >
           <td class="col-rank">
-            #{{ movie.rank }}
-            <span v-if="movie.rank_change === null" class="rank-badge new">新</span>
-            <span v-else-if="movie.rank_change > 0" class="rank-badge up">▲{{ movie.rank_change }}</span>
-            <span v-else-if="movie.rank_change < 0" class="rank-badge down">▼{{ Math.abs(movie.rank_change) }}</span>
+            <template v-if="movie.rank != null">
+              #{{ movie.rank }}
+              <span v-if="movie.rank_change === null" class="rank-badge new">新</span>
+              <span v-else-if="movie.rank_change > 0" class="rank-badge up">▲{{ movie.rank_change }}</span>
+              <span v-else-if="movie.rank_change < 0" class="rank-badge down">▼{{ Math.abs(movie.rank_change) }}</span>
+            </template>
+            <span v-else>-</span>
           </td>
           <td class="col-title">
             {{ movie.title }}

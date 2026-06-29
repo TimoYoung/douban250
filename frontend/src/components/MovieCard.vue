@@ -1,6 +1,6 @@
 <template>
   <div class="movie-card" @click="$router.push(`/movies/${movie.douban_id}`)">
-    <div class="card-rank">
+    <div class="card-rank" v-if="movie.rank != null">
       #{{ movie.rank }}
       <span v-if="movie.rank_change === null" class="rank-badge new">新</span>
       <span v-else-if="movie.rank_change > 0" class="rank-badge up">▲{{ movie.rank_change }}</span>

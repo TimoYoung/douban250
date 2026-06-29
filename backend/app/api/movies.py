@@ -400,12 +400,18 @@ def explore_movies(
         effective_page = page
         effective_page_size = page_size
 
-    # 获取最新版本的排名信息
-    latest_version = db.query(Version).order_by(Version.id.desc()).first()
+    # 获取排名信息：仅当指定了来源时，取该来源最新版本的排名
     rank_map = {}
-    if latest_version:
-        entries = db.query(VersionEntry).filter(VersionEntry.version_id == latest_version.id).all()
-        rank_map = {e.movie_id: e.rank for e in entries}
+    if source != "all":
+        latest_source_version = (
+            db.query(Version)
+            .filter(Version.source == source)
+            .order_by(Version.id.desc())
+            .first()
+        )
+        if latest_source_version:
+            entries = db.query(VersionEntry).filter(VersionEntry.version_id == latest_source_version.id).all()
+            rank_map = {e.movie_id: e.rank for e in entries}
 
     items = []
     for movie in movies:

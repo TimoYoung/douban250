@@ -282,6 +282,9 @@ def get_explore_filters(db: Session = Depends(get_db)):
     duration_min = duration_stats[0] or 0
     duration_max = duration_stats[1] or 300
 
+    # 可用来源
+    sources = [row[0] for row in db.query(Version.source).distinct().all()]
+
     return ExploreFilters(
         genres=sorted(genre_set),
         countries=sorted(country_set),
@@ -291,6 +294,7 @@ def get_explore_filters(db: Session = Depends(get_db)):
         rating_max=rating_max,
         duration_min=duration_min,
         duration_max=duration_max,
+        sources=sorted(sources),
     )
 
 
@@ -308,13 +312,25 @@ def explore_movies(
     duration_min: int | None = Query(None, ge=0),
     duration_max: int | None = Query(None, ge=0),
     watched_filter: str = Query("all", pattern="^(all|watched|unwatched)$"),
+    source: str = Query("all", pattern="^(all|douban|imdb)$", description="榜单来源筛选"),
     sort_by: str = Query("rating", pattern="^(rating|year|rank|title|duration)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_current_user),
 ):
     """探索页面：多维度筛选电影，支持评分/类型/地区/年份/时长/看过状态筛选 + 排序"""
-    query = db.query(Movie).filter(Movie.detail_fetched == True)
+    if source != "all":
+        # 按榜单来源筛选：join VersionEntry + Version，去重
+        query = (
+            db.query(Movie)
+            .join(VersionEntry, VersionEntry.movie_id == Movie.id)
+            .join(Version, Version.id == VersionEntry.version_id)
+            .filter(Movie.detail_fetched == True)
+            .filter(Version.source == source)
+            .distinct()
+        )
+    else:
+        query = db.query(Movie).filter(Movie.detail_fetched == True)
 
     # 评分筛选
     if rating_min is not None:

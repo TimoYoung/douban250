@@ -94,3 +94,4 @@ class ExploreFilters(BeijingBaseModel):
     rating_max: float
     duration_min: int
     duration_max: int
+    sources: list[str] = []

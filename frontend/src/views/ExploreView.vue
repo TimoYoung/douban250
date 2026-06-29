@@ -188,6 +188,25 @@
         </div>
       </div>
 
+      <!-- 榜单来源 -->
+      <div class="filter-section" v-if="filterMeta.sources.length > 1">
+        <h3>榜单来源</h3>
+        <div class="watched-toggle">
+          <button
+            class="watched-btn"
+            :class="{ active: sourceFilter === 'all' }"
+            @click="sourceFilter = 'all'"
+          >全部</button>
+          <button
+            v-for="src in filterMeta.sources"
+            :key="src"
+            class="watched-btn"
+            :class="{ active: sourceFilter === src }"
+            @click="sourceFilter = src"
+          >{{ src === 'imdb' ? 'IMDb' : '豆瓣' }}</button>
+        </div>
+      </div>
+
       <!-- 看过状态 -->
       <div class="filter-section" v-if="authStore.isLoggedIn">
         <h3>看过状态</h3>
@@ -353,6 +372,7 @@ const filterMeta = ref({
   rating_max: 10,
   duration_min: 0,
   duration_max: 300,
+  sources: [],
 })
 
 // ── 筛选状态 ──
@@ -362,6 +382,7 @@ const selectedCountries = ref([])
 const yearRange = ref([1900, 2026])
 const durationRange = ref([0, 300])
 const watchedFilter = ref('all')
+const sourceFilter = ref('all')
 const sortBy = ref('rating')
 const sortOrder = ref('desc')
 const filterPanelOpen = ref(false)
@@ -395,6 +416,7 @@ const activeFilterCount = computed(() => {
   if (yearRange.value[0] > filterMeta.value.year_min || yearRange.value[1] < filterMeta.value.year_max) count++
   if (durationRange.value[0] > filterMeta.value.duration_min || durationRange.value[1] < filterMeta.value.duration_max) count++
   if (watchedFilter.value !== 'all') count++
+  if (sourceFilter.value !== 'all') count++
   return count
 })
 
@@ -469,6 +491,7 @@ function resetFilters() {
   yearRange.value = [filterMeta.value.year_min, filterMeta.value.year_max]
   durationRange.value = [filterMeta.value.duration_min, filterMeta.value.duration_max]
   watchedFilter.value = 'all'
+  sourceFilter.value = 'all'
   sortBy.value = 'rating'
   sortOrder.value = 'desc'
   // filter watcher 会自动触发重新加载 + syncToQuery
@@ -486,6 +509,7 @@ function collectActiveFilters() {
   if (yearRange.value[1] < meta.year_max) f.year_max = yearRange.value[1]
   if (durationRange.value[0] > meta.duration_min) f.duration_min = durationRange.value[0]
   if (durationRange.value[1] < meta.duration_max) f.duration_max = durationRange.value[1]
+  if (sourceFilter.value !== 'all') f.source = sourceFilter.value
   return f
 }
 
@@ -511,6 +535,7 @@ function restoreFromQuery() {
   if (q.duration_min) durationRange.value[0] = parseInt(q.duration_min)
   if (q.duration_max) durationRange.value[1] = parseInt(q.duration_max)
   if (q.watched) watchedFilter.value = q.watched
+  if (q.source) sourceFilter.value = q.source
   if (q.sort_by) sortBy.value = q.sort_by
   if (q.sort_order) sortOrder.value = q.sort_order
 }
@@ -551,7 +576,7 @@ function debouncedLoad() {
   }, 300)
 }
 
-watch([ratingRange, selectedGenres, selectedCountries, yearRange, durationRange, watchedFilter, sortBy, sortOrder], debouncedLoad, { deep: true })
+watch([ratingRange, selectedGenres, selectedCountries, yearRange, durationRange, watchedFilter, sourceFilter, sortBy, sortOrder], debouncedLoad, { deep: true })
 
 // ── 初始化 ──
 // 用 isInitializing 标记阻止 watcher 在 loadFilters/restoreFromQuery 期间触发重复加载。

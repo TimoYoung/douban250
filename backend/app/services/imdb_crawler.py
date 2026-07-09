@@ -66,7 +66,7 @@ def fetch_imdb_top250() -> list[dict]:
     movies = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=settings.playwright_headless)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -82,13 +82,13 @@ def fetch_imdb_top250() -> list[dict]:
 
         try:
             page.wait_for_selector(
-                "li.ipc-metadata-list-summary-item", timeout=30000)
+                "li.ipc-metadata-list-summary-item", timeout=settings.playwright_timeout_ms)
         except Exception as e:
             logger.warning(f"Selector wait failed: {e}, retrying...")
             try:
                 page.wait_for_timeout(10000)
                 page.wait_for_selector(
-                    "li.ipc-metadata-list-summary-item", timeout=30000)
+                    "li.ipc-metadata-list-summary-item", timeout=settings.playwright_timeout_ms)
             except Exception as e2:
                 if not isinstance(e2, PlaywrightTimeout):
                     raise
@@ -236,18 +236,6 @@ def _douban_delay(base: float = None):
     time.sleep(base + random.random() * base * 0.5)
 
 
-def _check_blocked(text: str, url: str = ""):
-    """检测是否被豆瓣封锁（验证码/异常请求/PoW挑战）。"""
-    if "检测到有异常请求" in text:
-        raise RuntimeError(f"豆瓣反爬封锁: {url}")
-    # PoW 工作量证明挑战页（SHA-512 hash 碰撞）
-    if 'name="tok"' in text and 'name="cha"' in text and 'sha512' in text:
-        raise RuntimeError(f"豆瓣 PoW 挑战页: {url}")
-    # 极短响应且不含电影内容，可能是被重定向到验证页
-    if len(text) < 1000 and "电影" not in text and "title" not in text.lower():
-        raise RuntimeError(f"豆瓣疑似封锁 (响应过短 {len(text)} 字节): {url}")
-
-
 def _douban_suggest(client: httpx.Client, query: str) -> list[dict]:
     """调用豆瓣 suggest API，返回 [{id, title, sub_title, year}]。"""
     try:
@@ -346,18 +334,21 @@ def _douban_verify(
         return None
 
 
-def _fetch_imdb_id_from_douban_detail(
-    client: httpx.Client, douban_id: str
-) -> tuple[str | None, str | None]:
-    """访问豆瓣详情页，返回 (imdb_id, page_text)。"""
+def _fetch_imdb_id_from_douban_detail(douban_id: str) -> tuple[str | None, str | None]:
+    """访问豆瓣详情页（通过 Playwright 绕过 PoW），返回 (imdb_id, page_text)。
+
+    包含重试循环：瞬态网络故障/超时最多重试 max_retries 次，指数退避。
+    反爬封锁（AntiCrawlBlock）不重试，返回 (None, None)——
+    该候选无法验证，调用方继续尝试下一个候选。
+    """
+    from app.utils.douban_fetcher import get_douban_fetcher, AntiCrawlBlock
+
     url = f'https://movie.douban.com/subject/{douban_id}/'
+    fetcher = get_douban_fetcher()
+
     for attempt in range(settings.max_retries):
         try:
-            resp = client.get(url)
-            if resp.status_code != 200:
-                return (None, None)
-            text = resp.text
-            _check_blocked(text, url)
+            text = fetcher.fetch_page(url)
             # 格式1: 链接形式 imdb.com/title/ttXXXXXXX
             m = re.search(r'imdb\.com/title/(tt\d+)', text)
             if m:
@@ -367,8 +358,9 @@ def _fetch_imdb_id_from_douban_detail(
             if m:
                 return (m.group(1), text)
             return (None, text)
-        except RuntimeError:
-            raise  # 反爬封锁直接抛出
+        except AntiCrawlBlock as e:
+            logger.warning(f"详情页反爬封锁（跳过该候选）: {url} - {e}")
+            return (None, None)  # 不重试，该候选无法验证
         except Exception as e:
             if attempt < settings.max_retries - 1:
                 logger.warning(f"详情页请求失败 (重试 {attempt+1}): {url} - {e}")
@@ -537,13 +529,8 @@ def crawl_imdb_top250(db_factory) -> dict:
                         verified_candidates = []
 
                         for cand in candidates:
-                            try:
-                                detail_imdb_id, _ = \
-                                    _fetch_imdb_id_from_douban_detail(
-                                        douban_client, cand['id'])
-                            except RuntimeError as e:
-                                logger.warning(f"详情页验证失败: {e}")
-                                detail_imdb_id = None
+                            detail_imdb_id, _ = \
+                                _fetch_imdb_id_from_douban_detail(cand['id'])
                             _douban_delay(2.0)
 
                             cand_info = {

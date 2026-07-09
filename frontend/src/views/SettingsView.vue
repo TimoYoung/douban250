@@ -6,12 +6,6 @@
       <p class="sv-subtitle">管理版本、爬取任务和系统配置</p>
     </div>
 
-    <!-- Cookie warning -->
-    <div v-if="cookieWarning" class="cookie-warning">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      {{ cookieWarning }}
-    </div>
-
     <!-- Section: 版本管理 (admin only) -->
     <div class="section" v-if="isAdmin">
       <h4 class="section-title">版本管理</h4>
@@ -74,7 +68,7 @@
                 下次运行: {{ cronNextRun('cron') }}
               </div>
               <!-- Auto Execution Status -->
-              <div v-if="settingsStore.top250Retry && settingsStore.top250Retry.status !== 'exhausted'" class="retry-status">
+              <div v-if="settingsStore.top250Retry && !['exhausted', 'idle', 'cancelled'].includes(settingsStore.top250Retry.status)" class="retry-status">
                 <div class="retry-header">
                   <span class="retry-label">自动执行状态</span>
                   <span class="retry-tag" :class="'retry-' + settingsStore.top250Retry.status">
@@ -151,7 +145,7 @@
                 下次运行: {{ cronNextRun('imdb') }}
               </div>
               <!-- Auto Execution Status -->
-              <div v-if="settingsStore.imdbRetry && settingsStore.imdbRetry.status !== 'exhausted'" class="retry-status">
+              <div v-if="settingsStore.imdbRetry && !['exhausted', 'idle', 'cancelled'].includes(settingsStore.imdbRetry.status)" class="retry-status">
                 <div class="retry-header">
                   <span class="retry-label">自动执行状态</span>
                   <span class="retry-tag" :class="'retry-' + settingsStore.imdbRetry.status">
@@ -835,10 +829,6 @@ const imdbDoneMessage = computed(() => {
   return cleaned
 })
 
-const cookieWarning = computed(() => {
-  // Cookie warning is now per-user, shown in account section
-  return null
-})
 
 const metaPercent = computed(() => {
   const p = settingsStore.metadataProgress
@@ -990,6 +980,7 @@ function formatTime(t) {
 
 function retryStatusText(status) {
   const map = {
+    idle: '空闲',
     pending: '等待重试',
     running: '重试中',
     cancelled: '已取消',
@@ -1036,13 +1027,6 @@ async function onSaveRetrySettings() {
   } catch (e) {
     alert(e.response?.data?.detail || '保存失败')
   }
-}
-
-async function onSave() {
-  if (!isAdmin.value) return
-  await settingsStore.saveSettings()
-  snapshotCrons()
-  await settingsStore.loadCookieCheck()
 }
 
 async function onSaveMyDouban() {
@@ -1212,14 +1196,6 @@ function formatSize(bytes) {
   return `${size.toFixed(1)} ${units[i]}`
 }
 
-function formatElapsed(seconds) {
-  if (!seconds) return '0 秒'
-  if (seconds < 60) return `${seconds} 秒`
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `${mins} 分 ${secs} 秒`
-}
-
 function startBackupPolling() {
   if (backupProgressInterval) return
   backupProgressInterval = setInterval(async () => {
@@ -1291,7 +1267,6 @@ async function onSaveCron(which) {
   snapshotCrons()
 }
 
-async function onCheckCookie() { await settingsStore.checkCookie() }
 async function onTriggerCrawl() { await settingsStore.triggerCrawl(); startPolling() }
 async function onTriggerUserScrape() { await settingsStore.triggerUserScrape(); startPolling() }
 async function onTriggerUserScrapeFull() { await settingsStore.triggerUserScrape(true); startPolling() }
@@ -1335,6 +1310,8 @@ async function onDeleteConfirm() {
   try {
     const data = await settingsStore.removeVersion(v.id)
     deleteModal.value.visible = false
+    // 从选中列表中移除已删除的版本，避免横幅计数错误
+    selectedVersionIds.value = selectedVersionIds.value.filter(id => id !== v.id)
     const msg = []
     if (data.orphan_movies_deleted > 0) msg.push(`清理了 ${data.orphan_movies_deleted} 部孤立电影`)
     if (data.posters_deleted > 0) msg.push(`删除了 ${data.posters_deleted} 张海报`)
@@ -1656,9 +1633,6 @@ async function onDeleteConfirm() {
 .btn-ghost-sm:disabled { opacity: 0.4; cursor: not-allowed; }
 .w-full { width: 100%; }
 .flex-1 { flex: 1; }
-
-/* === Cookie warning === */
-.cookie-warning { display: flex; align-items: center; gap: 8px; background: #fff1f2; border: 1px solid rgba(244, 63, 94, 0.2); color: #f43f5e; padding: 10px 14px; border-radius: 10px; margin-bottom: 20px; font-size: 12px; font-weight: 500; }
 
 /* === Form fields === */
 .field { margin-bottom: 16px; }

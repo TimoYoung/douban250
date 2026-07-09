@@ -81,6 +81,20 @@ def _run_migrations(db):
             "ADD COLUMN last_meta_fetch DATETIME"))
         db.commit()
 
+    # 检查 movies 表是否有 meta_fetch_failures 和 last_meta_attempt 列
+    result = db.execute(text("PRAGMA table_info(movies)"))
+    columns = {row[1] for row in result}
+    if 'meta_fetch_failures' not in columns:
+        db.execute(text(
+            "ALTER TABLE movies "
+            "ADD COLUMN meta_fetch_failures INTEGER DEFAULT 0 NOT NULL"))
+        db.commit()
+    if 'last_meta_attempt' not in columns:
+        db.execute(text(
+            "ALTER TABLE movies "
+            "ADD COLUMN last_meta_attempt DATETIME"))
+        db.commit()
+
     # 检查 movies 表是否有 duration 列
     result = db.execute(text("PRAGMA table_info(movies)"))
     columns = {row[1] for row in result}

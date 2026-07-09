@@ -14,7 +14,8 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import Movie, CrawlLog
 from app.utils import now
-from app.utils.http_client import fetch_page, fetch_binary, _get_cookie
+from app.utils.http_client import fetch_binary, _get_cookie
+from app.utils.douban_fetcher import AntiCrawlBlock, PageFetchTimeout, get_douban_fetcher
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,16 @@ def _needs_metadata_query():
     """SQLAlchemy filter for movies needing metadata backfill.
 
     Selects movies with missing fields that haven't been fetched recently
-    (within 7 days). Successfully fetched movies are skipped even if some
+    (within 30 days). Successfully fetched movies are skipped even if some
     fields are empty — that means the source genuinely has no data for them.
+
+    Only selects movies with numeric douban_id (excludes placeholders like
+    "blocked_vendetta").
     """
-    cutoff = now() - timedelta(days=7)
+    cutoff = now() - timedelta(days=30)
+    numeric_id = Movie.douban_id.op("GLOB")("[0-9][0-9]*")  # 1+ 位纯数字
     return or_(
-        # 缺少字段且从未获取过，或距上次获取超过 7 天
+        # 缺少字段且从未获取过，或距上次成功获取超过 30 天
         (
             (
                 or_(Movie.director.is_(None), Movie.director == "") |
@@ -56,29 +61,53 @@ def _needs_metadata_query():
                 Movie.rating_count.is_(None) |
                 Movie.duration.is_(None)
             ) &
+            numeric_id &
             (Movie.last_meta_fetch.is_(None) | (Movie.last_meta_fetch < cutoff))
         ),
-        # 有 douban_id 但缺少 imdb_id 且未标记已获取
-        (Movie.douban_id.isnot(None) & Movie.imdb_id.is_(None) & Movie.detail_fetched.isnot(True))
+        # 有 douban_id 但缺少 imdb_id 且未标记已获取（仅数字 ID）
+        (numeric_id & Movie.imdb_id.is_(None) & Movie.detail_fetched.isnot(True))
     )
 
 
 def check_cookie_valid(cookie: str = "") -> dict:
-    """Check if the Douban cookie is still valid. Returns {valid, message}."""
+    """Check if the Douban cookie is still valid. Returns {valid, message}.
+
+    使用 Playwright 获取页面（dispatch-thread 架构），能自动处理 PoW 挑战。
+    每次调用都会清除浏览器旧 cookie 并注入当前 cookie，确保 cookie 始终生效。
+    """
     if not cookie:
         cookie = _get_cookie()
     if not cookie:
         return {"valid": False, "message": "未配置豆瓣 Cookie"}
 
     try:
-        html = fetch_page("https://movie.douban.com/mine?status=collect", cookie=cookie)
-        if "登录" in html[:2000] and "注册" in html[:2000]:
+        fetcher = get_douban_fetcher()
+        html = fetcher.fetch_page_with_cookie(
+            "https://movie.douban.com/mine?status=collect", cookie)
+
+        head = html[:2000]
+        # 仅检查登录页（_handle_fetch 不检测登录重定向，这是唯一需要在此检查的条件）
+        if "登录" in head and "注册" in head:
             return {"valid": False, "message": "Cookie 已过期，请在设置页面更新"}
-        if "检测到有异常请求" in html:
-            return {"valid": False, "message": "Cookie 触发反爬机制"}
         return {"valid": True, "message": "Cookie 有效"}
-    except Exception as e:
-        return {"valid": False, "message": f"Cookie 验证失败: {e}"}
+    except AntiCrawlBlock as e:
+        # fetcher 在 _handle_fetch 中已检测到反爬/无效页面并抛出
+        # 根据异常消息提供友好提示
+        msg = str(e)
+        if "没有访问权限" in msg:
+            return {"valid": False, "message": "Cookie 无效，无法访问该页面"}
+        if "反爬封锁" in msg:
+            return {"valid": False, "message": "Cookie 触发反爬机制"}
+        if "PoW" in msg:
+            return {"valid": False, "message": "Cookie 验证失败：反爬挑战未通过"}
+        if "CAPTCHA" in msg:
+            return {"valid": False, "message": "Cookie 触发验证码"}
+        logger.warning(f"check_cookie_valid: 未识别的 AntiCrawlBlock: {msg}")
+        return {"valid": False, "message": "Cookie 触发反爬机制，请稍后重试"}
+    except Exception:
+        # 通用异常（网络错误/Playwright 崩溃等）——不向用户暴露内部 URL/异常细节
+        logger.exception("check_cookie_valid: 验证异常")
+        return {"valid": False, "message": "Cookie 验证失败，请检查网络后重试"}
 
 
 def _clean_summary(text: str) -> str:
@@ -252,18 +281,6 @@ def parse_detail_page(html: str) -> dict:
     return info
 
 
-def _needs_metadata(movie: Movie, force: bool = False) -> bool:
-    """Check if a movie needs metadata. Required fields must be present."""
-    return (
-        not movie.director
-        or not movie.genre
-        or not movie.country
-        or not movie.summary
-        or not movie.poster_path
-        or not movie.douban_url
-    )
-
-
 def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
     """Fetch missing metadata for all movies that need it.
 
@@ -272,6 +289,7 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
       - 'full': refetch all movies, always update title/rating/rating_count
     """
     db = SessionLocal()
+    fetcher = get_douban_fetcher()
     log = CrawlLog(
         job_type="metadata",
         status="running",
@@ -292,8 +310,27 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
             to_fetch = [m for m in to_fetch if m.douban_id and m.douban_id.isdigit()]
         elif force:
             to_fetch = db.query(Movie).all()
+            # 过滤掉非数字 douban_id（占位符如 "blocked_vendetta" 无法构造合法 URL）
+            to_fetch = [m for m in to_fetch if m.douban_id and m.douban_id.isdigit()]
         else:
             to_fetch = db.query(Movie).filter(_needs_metadata_query()).all()
+
+        # 指数退避过滤：失败次数越多，重试间隔越长
+        # backoff = min(2^failures 小时, 72 小时)
+        # force=True 和 mode='full' 跳过退避——用户明确要求立即处理
+        if not force and mode != "full":
+            def _should_retry_now(movie):
+                if movie.last_meta_attempt is None:
+                    return True
+                failures = movie.meta_fetch_failures or 0
+                hours = min(2 ** failures, 72)
+                # SQLite 返回 naive datetime（无时区），now() 返回 aware
+                # 比较前统一为 naive（去掉时区信息）
+                last_attempt = movie.last_meta_attempt.replace(tzinfo=None)
+                cutoff = now().replace(tzinfo=None) - timedelta(hours=hours)
+                return last_attempt < cutoff
+
+            to_fetch = [m for m in to_fetch if _should_retry_now(m)]
 
         meta_progress.update({
             "active": True,
@@ -316,16 +353,19 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
             logger.info(f"[{idx + 1}/{len(to_fetch)}] {movie.title} ({movie.douban_id})")
 
             try:
-                # Skip movies with non-numeric douban_id (e.g. placeholders)
-                if movie.douban_id and not movie.douban_id.isdigit():
-                    logger.info(f"  Skipping (non-numeric douban_id: {movie.douban_id})")
-                    movie.last_meta_fetch = now()  # 标记已处理，避免重复选中
+                url = f"https://movie.douban.com/subject/{movie.douban_id}/"
+                html = fetcher.fetch_page(url)
+
+                try:
+                    info = parse_detail_page(html)
+                except Exception as parse_err:
+                    # 解析失败是确定性 bug——递增退避永远无法修复
+                    # 标记为已获取（30天后再试），不递增 meta_fetch_failures
+                    logger.warning(f"  详情页解析失败: {parse_err}")
+                    movie.last_meta_fetch = now()
+                    movie.last_meta_attempt = now()
                     meta_progress["failed"] += 1
                     continue
-
-                url = f"https://movie.douban.com/subject/{movie.douban_id}/"
-                html = fetch_page(url)
-                info = parse_detail_page(html)
 
                 updated = False
 
@@ -374,22 +414,30 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
                         pass
 
                 # 成功获取页面后标记时间戳，无论是否所有字段都有值
-                # 空字段视为来源确实没有该数据，7 天内不重试
+                # 空字段视为来源确实没有该数据，30 天内不重试
                 movie.last_meta_fetch = now()
+                movie.last_meta_attempt = now()
+                movie.meta_fetch_failures = 0  # 成功时重置失败计数
                 if updated and not movie.detail_fetched:
                     movie.detail_fetched = True
                 movie.updated_at = now()
                 meta_progress["updated"] += 1
 
-            except RuntimeError as e:
-                logger.warning(f"  反爬封锁: {e}")
+            except (AntiCrawlBlock, PageFetchTimeout) as e:
+                # 冷却策略：反爬封锁 30-60s，超时 5-10s
+                cooldown_range = (30, 60) if isinstance(e, AntiCrawlBlock) else (5, 10)
+                label = "反爬封锁" if isinstance(e, AntiCrawlBlock) else "超时/网络错误"
+                logger.warning(f"  {label}: {e}")
+                movie.last_meta_attempt = now()
+                movie.meta_fetch_failures = (movie.meta_fetch_failures or 0) + 1
                 meta_progress["failed"] += 1
-                # 被封锁后长冷却，避免持续触发
-                cooldown = 30 + random.random() * 30
+                cooldown = cooldown_range[0] + random.random() * (cooldown_range[1] - cooldown_range[0])
                 logger.info(f"  冷却 {cooldown:.0f}s 后继续...")
                 time.sleep(cooldown)
             except Exception as e:
                 logger.warning(f"  Failed: {e}")
+                movie.last_meta_attempt = now()
+                movie.meta_fetch_failures = (movie.meta_fetch_failures or 0) + 1
                 meta_progress["failed"] += 1
 
             if (idx + 1) % 10 == 0:

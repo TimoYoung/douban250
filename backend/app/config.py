@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     douban_user_id: str = ""
     douban_cookie: str = ""
     douban_request_delay: float = 2.0
+    douban_page_delay: float = 3.0       # Playwright 详情页请求间隔（秒）
+    playwright_timeout_ms: int = 45000   # Playwright 页面加载超时（毫秒）
+    playwright_headless: bool = True     # Playwright 无头模式
     max_retries: int = 3
     douban_user_agent: str = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "

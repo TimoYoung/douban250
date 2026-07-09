@@ -1,0 +1,473 @@
+"""Tests for Playwright dispatch-thread fetcher and cookie validation."""
+
+import threading
+import time
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+from app.utils.douban_fetcher import (
+    DoubanFetcher,
+    get_douban_fetcher,
+    reset_douban_fetcher,
+    PageFetchTimeout,
+    AntiCrawlBlock,
+)
+from app.services.metadata import check_cookie_valid
+
+
+class TestDispatchThread:
+    """Verify dispatch-thread architecture: all Playwright ops on one thread."""
+
+    def teardown_method(self):
+        reset_douban_fetcher()
+
+    def test_cross_thread_fetch_no_greenlet_error(self):
+        """Bug repro: fetching from a different thread than the one that
+        created the browser must NOT raise 'Cannot switch to a different thread'.
+
+        This was the root cause of both metadata fetch failures and cookie
+        validation failures in production.
+        """
+        results = {}
+        errors = {}
+
+        def fetch_from_thread(thread_name):
+            try:
+                fetcher = get_douban_fetcher()
+                # Mock the Playwright internals to return known HTML
+                # (avoid real network calls)
+                html = fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+                results[thread_name] = html
+            except Exception as e:
+                errors[thread_name] = e
+
+        # Patch the internal Playwright operations to avoid real browser
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_handle_fetch') as mock_fetch, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_init.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+            mock_fetch.return_value = "<html>test page</html>"
+
+            # Thread A creates the fetcher
+            t1 = threading.Thread(target=fetch_from_thread, args=("A",))
+            # Thread B uses the same fetcher from a different thread
+            t2 = threading.Thread(target=fetch_from_thread, args=("B",))
+
+            t1.start()
+            t1.join(timeout=10)
+            t2.start()
+            t2.join(timeout=10)
+
+        # Both threads should succeed — no greenlet error
+        assert "A" not in errors, f"Thread A failed: {errors.get('A')}"
+        assert "B" not in errors, f"Thread B failed: {errors.get('B')}"
+        assert results.get("A") == "<html>test page</html>"
+        assert results.get("B") == "<html>test page</html>"
+
+    def test_cookie_injected_on_every_fetch(self):
+        """Bug repro: fetch_page_with_cookie must inject the cookie on every
+        call, even when the browser already exists. Previously, cookies were
+        only injected at browser creation time.
+        """
+        fetcher = get_douban_fetcher()
+        captured_cookies = []
+
+        def mock_handle_fetch(self, page, context, url, cookie):
+            captured_cookies.append(cookie)
+            return "<html>ok</html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_handle_fetch', mock_handle_fetch), \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_init.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+            # Fetch with no cookie
+            fetcher.fetch_page("https://movie.douban.com/subject/1/")
+            # Fetch with custom cookie
+            fetcher.fetch_page_with_cookie(
+                "https://movie.douban.com/mine?status=collect",
+                "bid=abc123; ll=108288",
+            )
+            # Fetch again with different cookie
+            fetcher.fetch_page_with_cookie(
+                "https://movie.douban.com/mine?status=collect",
+                "bid=new_cookie; ll=999",
+            )
+
+        # Each call should pass the correct cookie to _handle_fetch
+        assert len(captured_cookies) == 3
+        assert captured_cookies[0] is None          # fetch_page → None
+        assert captured_cookies[1] == "bid=abc123; ll=108288"
+        assert captured_cookies[2] == "bid=new_cookie; ll=999"
+
+    def test_exception_propagated_not_returned_as_value(self):
+        """Bug fix: exceptions from _handle_fetch must be RAISED to the caller,
+        not returned as the future's result value. Previously used
+        future.set_result(exception) which returned the exception object.
+        """
+        fetcher = get_douban_fetcher()
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_handle_fetch') as mock_fetch, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_init.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+            mock_fetch.side_effect = PageFetchTimeout("模拟超时")
+
+            with pytest.raises(PageFetchTimeout, match="模拟超时"):
+                fetcher.fetch_page("https://movie.douban.com/subject/1/")
+
+    def test_worker_crash_auto_recovers(self):
+        """Bug fix: when the dispatch thread dies (e.g., Chromium OOM),
+        the next fetch_page call should auto-respawn the worker instead
+        of permanently raising '请重启后端'.
+        """
+        fetcher = get_douban_fetcher()
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_handle_fetch') as mock_fetch, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_init.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+            mock_fetch.return_value = "<html>recovered</html>"
+
+            # Start worker
+            fetcher._ensure_worker()
+            original_worker = fetcher._worker_thread
+            assert original_worker.is_alive()
+
+            # Simulate worker death (e.g., Chromium OOM-kill)
+            # Kill the worker thread by exiting its loop
+            fetcher._cmd_queue.put(('close',))
+            original_worker.join(timeout=5)
+            assert not original_worker.is_alive()
+            # _started is still True (the bug condition)
+            assert fetcher._started is True
+
+            # Next fetch should auto-respawn, NOT raise PageFetchTimeout
+            html = fetcher.fetch_page("https://movie.douban.com/subject/1/")
+            assert html == "<html>recovered</html>"
+            # Worker was respawned
+            assert fetcher._worker_thread is not original_worker
+            assert fetcher._worker_thread.is_alive()
+
+    def test_close_prevents_respawn(self):
+        """Bug fix: after close(), fetch_page should raise PageFetchTimeout
+        rather than silently respawning a new worker. Without a _closed flag,
+        concurrent fetch_page() after close() could respawn, violating shutdown.
+        """
+        fetcher = get_douban_fetcher()
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_handle_fetch') as mock_fetch, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_init.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+            mock_fetch.return_value = "<html>should not reach</html>"
+
+            fetcher._ensure_worker()
+            assert fetcher._started is True
+
+            # Close
+            fetcher.close()
+            time.sleep(0.2)
+
+            # After close, fetch_page should NOT respawn — should raise
+            with pytest.raises(PageFetchTimeout):
+                fetcher.fetch_page("https://movie.douban.com/subject/1/")
+
+    def test_pow_challenge_page_raises_anticrawl(self):
+        """Bug fix: if PoW challenge page is still present after the wait
+        (Playwright failed to solve within timeout), the fetcher should
+        raise AntiCrawlBlock instead of returning challenge HTML as valid.
+
+        Uses realistic PoW page structure matching http_client.py's detection:
+        <input name="cha"> + <input name="tok"> + sha512 JS.
+        """
+        fetcher = get_douban_fetcher()
+
+        # Realistic PoW challenge page (matches http_client.py detection)
+        pow_html = """<html><body>
+        <form><input name="cha" value="abc123"><input name="tok" value="def456"></form>
+        <script>function solve(){var sha512=..."}</script>
+        </body></html>"""
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            mock_page.content.return_value = pow_html
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            with pytest.raises(AntiCrawlBlock):
+                fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+
+    def test_normal_page_with_tok_param_does_not_trigger_pow(self):
+        """False positive prevention: a normal movie page that has
+        name="tok" (form field) + sha512 (SRI attribute) but NOT name="cha"
+        should NOT be classified as a PoW challenge page.
+
+        PoW detection requires ALL THREE: name="tok" AND name="cha" AND sha512.
+        This test verifies partial matches don't trigger false positives.
+        """
+        fetcher = get_douban_fetcher()
+
+        # Partial PoW match: has name="tok" + sha512, but NO name="cha"
+        # Real PoW pages need both name="tok" AND name="cha"
+        normal_html = """<html><head><title>肖申克的救赎 (豆瓣)</title>
+        <script integrity="sha512-abc123..."></script></head>
+        <body>
+        <form><input name="tok" value="session_token"></form>
+        <a href="?tok=abc123">link</a>
+        <div class="movie">电影详情内容</div></body></html>"""
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            mock_page.content.return_value = normal_html
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            # Should NOT raise — partial match is not a PoW page
+            html = fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+            assert "肖申克的救赎" in html
+
+    def test_no_access_page_raises_anticrawl(self):
+        """Bug fix: '没有访问权限' page should raise AntiCrawlBlock in the
+        fetcher (not just in check_cookie_valid). Otherwise metadata backfill
+        treats it as valid → parse fails → 30-day skip.
+        """
+        fetcher = get_douban_fetcher()
+
+        no_access_html = "<html><head><title>没有访问权限</title></head><body>您没有访问权限</body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            mock_page.content.return_value = no_access_html
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            with pytest.raises(AntiCrawlBlock):
+                fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+
+    def test_detects_abnormal_request_raises_anticrawl(self):
+        """'检测到有异常请求' page should raise AntiCrawlBlock in the fetcher.
+        This is the third anti-crawl detection pattern (alongside
+        '没有访问权限' and PoW challenge).
+        """
+        fetcher = get_douban_fetcher()
+
+        abnormal_html = "<html><head><title>异常请求</title></head><body>检测到有异常请求，请稍后再试</body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            mock_page.content.return_value = abnormal_html
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            with pytest.raises(AntiCrawlBlock, match="反爬封锁"):
+                fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+
+    def test_close_stops_worker_thread(self):
+        """close() should stop the dispatch thread cleanly."""
+        fetcher = get_douban_fetcher()
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_init.return_value = (MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+            # Trigger worker start
+            fetcher._ensure_worker()
+            assert fetcher._started is True
+            worker = fetcher._worker_thread
+            assert worker is not None
+            assert worker.is_alive()
+
+            # Close
+            fetcher.close()
+            assert fetcher._started is False
+            # Worker thread should exit (it's a daemon, but check it's not alive)
+            time.sleep(0.2)  # Give it time to process the close command
+            assert not worker.is_alive()
+
+
+class TestCheckCookieValid:
+    """Verify check_cookie_valid correctly detects various page states."""
+
+    def teardown_method(self):
+        reset_douban_fetcher()
+
+    def test_detects_no_access_page(self):
+        """'没有访问权限' page means cookie is invalid — should return valid=False.
+
+        The fetcher raises AntiCrawlBlock for '没有访问权限' pages.
+        check_cookie_valid must catch it and return a friendly message,
+        NOT the generic 'Cookie 验证失败: ...'.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "没有访问权限: https://movie.douban.com/mine?status=collect"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        # Positive assertion: verify specific message mapping
+        assert "无效" in result["message"]
+        # Negative assertions: should NOT contain raw URL or generic error text
+        assert "验证失败" not in result["message"]
+        assert "movie.douban.com" not in result["message"]
+
+    def test_detects_anticrawl_page_from_fetcher(self):
+        """When fetcher raises AntiCrawlBlock for '检测到有异常请求',
+        check_cookie_valid should return a friendly message.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "豆瓣反爬封锁: https://movie.douban.com/mine?status=collect"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "反爬" in result["message"]
+        assert "验证失败" not in result["message"]
+
+    def test_detects_pow_challenge_from_fetcher(self):
+        """When fetcher raises AntiCrawlBlock for PoW challenge,
+        check_cookie_valid should return a specific PoW message.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "PoW 挑战页未解出: https://movie.douban.com/mine?status=collect"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "反爬挑战" in result["message"]
+        # PoW message "Cookie 验证失败：反爬挑战未通过" contains "验证失败",
+        # so we check for "触发反爬机制" (the generic fallback) instead
+        assert "触发反爬机制" not in result["message"]
+
+    def test_detects_login_page(self):
+        """Login page (with '登录' AND '注册') means cookie expired."""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.return_value = (
+            "<html><head><title>登录豆瓣</title></head>"
+            "<body>登录 注册 <form>...</form></body></html>"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "过期" in result["message"]
+
+    def test_detects_captcha_from_fetcher(self):
+        """When fetcher raises AntiCrawlBlock for CAPTCHA,
+        check_cookie_valid should return a CAPTCHA-specific message.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "CAPTCHA page: https://movie.douban.com/mine?status=collect"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "验证码" in result["message"]
+        assert "验证失败" not in result["message"]
+
+    def test_unknown_anticrawl_returns_generic_message(self):
+        """When fetcher raises AntiCrawlBlock with an unknown message,
+        check_cookie_valid should return a generic message WITHOUT
+        leaking the raw URL.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "IP 被封禁: https://movie.douban.com/mine?status=collect"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "反爬" in result["message"]
+        # Fallback should NOT leak the raw URL
+        assert "movie.douban.com" not in result["message"]
+
+    def test_valid_cookie_returns_true(self):
+        """A page with user's collection should return valid=True."""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.return_value = (
+            "<html><head><title>我的收藏</title></head>"
+            "<body>我的电影列表 ...</body></html>"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is True
+
+    def test_exception_returns_false(self):
+        """Any exception from the fetcher should return valid=False."""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = PageFetchTimeout("超时")
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "验证失败" in result["message"]
+
+    def test_exception_does_not_leak_url(self):
+        """Exception catch-all should NOT leak internal URLs to the user.
+        PageFetchTimeout messages contain URLs like
+        'Playwright 获取失败: https://movie.douban.com/...'
+        which should be stripped from the user-facing message.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = PageFetchTimeout(
+            "Playwright 获取失败: https://movie.douban.com/mine?status=collect"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        # Should NOT leak the raw URL
+        assert "movie.douban.com" not in result["message"]

@@ -5,7 +5,8 @@ import json
 
 import pytest
 
-from app.services.imdb_crawler import fetch_imdb_top250
+from app.services.imdb_crawler import fetch_imdb_top250, _fetch_imdb_id_from_douban_detail
+from app.utils.douban_fetcher import AntiCrawlBlock, PageFetchTimeout
 
 
 MOCK_MOVIES = [
@@ -107,3 +108,61 @@ class TestFetchImdbTop250Fallback:
             movies = fetch_imdb_top250()
 
         assert len(movies) == 2
+
+
+class TestFetchImdbIdFromDoubanDetailExceptions:
+    """Verify _fetch_imdb_id_from_douban_detail exception behavior.
+
+    AntiCrawlBlock should propagate immediately (no retry).
+    PageFetchTimeout should be retried up to max_retries, then return (None, None).
+    """
+
+    def test_anticrawl_block_returns_none_no_retry(self):
+        """AntiCrawlBlock should return (None, None) immediately — no retry, no propagation.
+
+        This prevents the exception from escaping the candidate verification loop
+        at imdb_crawler.py:536 and aborting the entire IMDb crawl.
+        """
+        with patch("app.utils.douban_fetcher.get_douban_fetcher") as mock_get:
+            mock_fetcher = MagicMock()
+            mock_fetcher.fetch_page.side_effect = AntiCrawlBlock("PoW 挑战页")
+            mock_get.return_value = mock_fetcher
+
+            result = _fetch_imdb_id_from_douban_detail("1292052")
+
+            assert result == (None, None)
+            # 只调用了 1 次——不重试
+            assert mock_fetcher.fetch_page.call_count == 1
+
+    def test_page_fetch_timeout_retries_then_returns_none(self):
+        """PageFetchTimeout should retry max_retries times, then return (None, None)."""
+        from app.config import settings
+
+        with patch("app.utils.douban_fetcher.get_douban_fetcher") as mock_get:
+            mock_fetcher = MagicMock()
+            mock_fetcher.fetch_page.side_effect = PageFetchTimeout("超时")
+            mock_get.return_value = mock_fetcher
+
+            result = _fetch_imdb_id_from_douban_detail("1292052")
+
+            assert result == (None, None)
+            # 重试了 max_retries 次
+            assert mock_fetcher.fetch_page.call_count == settings.max_retries
+
+    def test_error_page_returns_none(self):
+        """When the fetcher raises AntiCrawlBlock for error pages
+        ('没有访问权限', PoW challenge, etc.), _fetch_imdb_id_from_douban_detail
+        should return (None, None) without retrying — same as explicit anti-crawl.
+
+        This covers HTTP 404/500 pages that the fetcher now detects.
+        """
+        with patch("app.utils.douban_fetcher.get_douban_fetcher") as mock_get:
+            mock_fetcher = MagicMock()
+            mock_fetcher.fetch_page.side_effect = AntiCrawlBlock("没有访问权限: url")
+            mock_get.return_value = mock_fetcher
+
+            result = _fetch_imdb_id_from_douban_detail("1292052")
+
+            assert result == (None, None)
+            # 不重试
+            assert mock_fetcher.fetch_page.call_count == 1

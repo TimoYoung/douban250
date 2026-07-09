@@ -27,6 +27,8 @@ class Movie(Base):
     douban_url = Column(String(500))
     detail_fetched = Column(Boolean, default=False)  # True if detail page was successfully parsed
     last_meta_fetch = Column(DateTime(timezone=True), nullable=True)  # 上次成功获取元数据的时间
+    meta_fetch_failures = Column(Integer, default=0, nullable=False)  # 连续获取失败次数
+    last_meta_attempt = Column(DateTime(timezone=True), nullable=True)  # 上次尝试时间（不论成败）
     created_at = Column(DateTime(timezone=True), default=now)
     updated_at = Column(DateTime(timezone=True), default=now, onupdate=now)
 

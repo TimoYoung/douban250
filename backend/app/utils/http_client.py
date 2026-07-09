@@ -45,7 +45,7 @@ def fetch_page(url: str, cookie: str = "") -> str:
     headers = get_headers(cookie)
     last_error = None
 
-    for attempt in range(settings.max_retries):
+    for attempt in range(settings.douban_http_max_retries):
         try:
             with httpx.Client(headers=headers, follow_redirects=True, timeout=30) as client:
                 resp = client.get(url)
@@ -71,13 +71,13 @@ def fetch_page(url: str, cookie: str = "") -> str:
             raise  # 反爬封锁直接抛出，不重试
         except Exception as e:
             last_error = e
-            if attempt < settings.max_retries - 1:
+            if attempt < settings.douban_http_max_retries - 1:
                 # 指数退避 + 随机抖动
                 backoff = settings.douban_request_delay * (2 ** attempt) * (1 + random.random())
-                logger.warning(f"请求失败 (重试 {attempt+1}/{settings.max_retries}): {url} - {e}, 等待 {backoff:.1f}s")
+                logger.warning(f"请求失败 (重试 {attempt+1}/{settings.douban_http_max_retries}): {url} - {e}, 等待 {backoff:.1f}s")
                 time.sleep(backoff)
 
-    raise RuntimeError(f"Failed to fetch {url} after {settings.max_retries} retries: {last_error}")
+    raise RuntimeError(f"Failed to fetch {url} after {settings.douban_http_max_retries} retries: {last_error}")
 
 
 def fetch_binary(url: str) -> bytes:
@@ -86,7 +86,7 @@ def fetch_binary(url: str) -> bytes:
     headers = get_headers(cookie)
     last_error = None
 
-    for attempt in range(settings.max_retries):
+    for attempt in range(settings.douban_http_max_retries):
         try:
             with httpx.Client(headers=headers, follow_redirects=True, timeout=30) as client:
                 resp = client.get(url)
@@ -95,7 +95,7 @@ def fetch_binary(url: str) -> bytes:
                 return resp.content
         except Exception as e:
             last_error = e
-            if attempt < settings.max_retries - 1:
+            if attempt < settings.douban_http_max_retries - 1:
                 time.sleep(settings.douban_request_delay * (attempt + 1))
 
-    raise RuntimeError(f"Failed to fetch {url} after {settings.max_retries} retries: {last_error}")
+    raise RuntimeError(f"Failed to fetch {url} after {settings.douban_http_max_retries} retries: {last_error}")

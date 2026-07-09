@@ -20,9 +20,10 @@ class CrawlScheduler:
         """Start the scheduler with configured cron expressions."""
         top250_cron = self._get_setting("cron_expression", "0 9 * * 1")  # Default: Monday 9am
         user_cron = self._get_setting("user_scrape_cron", "")
-        meta_cron = self._get_setting("metadata_cron", "0 5 * * 0")  # Default: Sunday 5am
+        meta_cron = self._get_setting("metadata_cron", "")  # Default: disabled (auto-trigger covers it)
 
-        self._schedule_top250(top250_cron)
+        if top250_cron:
+            self._schedule_top250(top250_cron)
         if user_cron:
             self._schedule_user(user_cron)
         if meta_cron:
@@ -33,7 +34,7 @@ class CrawlScheduler:
             self._schedule_imdb(imdb_cron)
 
         self.scheduler.start()
-        logger.info(f"Scheduler started. Top250: {top250_cron}, User: {user_cron or 'disabled'}, Metadata: {meta_cron}, IMDb: {imdb_cron or 'disabled'}")
+        logger.info(f"Scheduler started. Top250: {top250_cron or 'disabled'}, User: {user_cron or 'disabled'}, Metadata: {meta_cron or 'disabled'}, IMDb: {imdb_cron or 'disabled'}")
 
     def shutdown(self, wait: bool = True):
         self.scheduler.shutdown(wait=wait)
@@ -74,6 +75,24 @@ class CrawlScheduler:
         except Exception:
             self._schedule_meta(cron_expression)
 
+    def remove_meta_job(self):
+        """Remove the metadata backfill cron job."""
+        self._set_setting("metadata_cron", "")
+        try:
+            self.scheduler.remove_job(self._meta_job_id)
+            logger.info("Metadata backfill job removed")
+        except Exception:
+            pass
+
+    def remove_top250_job(self):
+        """Remove the top250 crawl cron job."""
+        self._set_setting("cron_expression", "")
+        try:
+            self.scheduler.remove_job(self._top250_job_id)
+            logger.info("Top250 crawl job removed")
+        except Exception:
+            pass
+
     def reschedule_imdb(self, cron_expression: str):
         """Reschedule the IMDb crawl job."""
         self._set_setting("imdb_cron", cron_expression)
@@ -96,7 +115,9 @@ class CrawlScheduler:
         db = SessionLocal()
         try:
             setting = db.query(Setting).filter(Setting.key == key).first()
-            return setting.value if setting and setting.value else default
+            if setting is None or setting.value is None:
+                return default
+            return setting.value
         finally:
             db.close()
 

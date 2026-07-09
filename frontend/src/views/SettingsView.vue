@@ -395,9 +395,9 @@
             </div>
             <div class="cron-inline">
               <label>Cron</label>
-              <input v-model="settingsStore.metadataCron" placeholder="0 5 * * 0" class="cron-input" />
+              <input v-model="settingsStore.metadataCron" placeholder="已禁用" class="cron-input" />
               <button v-if="settingsStore.metadataCron !== savedMetaCron" class="cron-save" @click="onSaveCron('meta')">保存</button>
-              <span v-else class="cron-hint">默认 0 5 * * 0（每周日凌晨5点）</span>
+              <span v-else class="cron-hint">默认已禁用（新版本自动触发补全）</span>
             </div>
             <div class="btn-row">
               <button class="btn btn-dark flex-1" :disabled="settingsStore.metadataProgress?.active || isCrawling" @click="onTriggerMeta('incremental')">

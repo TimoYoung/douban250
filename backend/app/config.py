@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     douban_page_delay: float = 3.0       # Playwright 详情页请求间隔（秒）
     playwright_timeout_ms: int = 45000   # Playwright 页面加载超时（毫秒）
     playwright_headless: bool = True     # Playwright 无头模式
-    max_retries: int = 3
+    douban_http_max_retries: int = 3  # HTTP 请求重试次数（区别于 DB Setting 的任务级 max_retries）
     douban_user_agent: str = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "

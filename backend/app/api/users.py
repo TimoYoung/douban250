@@ -14,7 +14,7 @@ router = APIRouter()
 def get_settings(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     cron = _get_setting(db, "cron_expression", "0 9 * * 1")
     user_cron = _get_setting(db, "user_scrape_cron", "")
-    meta_cron = _get_setting(db, "metadata_cron", "0 5 * * 0")
+    meta_cron = _get_setting(db, "metadata_cron", "")
     imdb_cron = _get_setting(db, "imdb_cron", "0 4 * * *")
     retry_interval = _get_setting(db, "retry_interval", "3600")
     max_retries = _get_setting(db, "max_retries", "3")
@@ -34,7 +34,10 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), admin: 
 
     if data.cron_expression is not None:
         _set_setting(db, "cron_expression", data.cron_expression)
-        scheduler.reschedule(data.cron_expression)
+        if data.cron_expression.strip():
+            scheduler.reschedule(data.cron_expression)
+        else:
+            scheduler.remove_top250_job()
 
     if data.user_scrape_cron is not None:
         _set_setting(db, "user_scrape_cron", data.user_scrape_cron)
@@ -47,6 +50,8 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), admin: 
         _set_setting(db, "metadata_cron", data.metadata_cron)
         if data.metadata_cron.strip():
             scheduler.reschedule_meta(data.metadata_cron)
+        else:
+            scheduler.remove_meta_job()
 
     if data.imdb_cron is not None:
         _set_setting(db, "imdb_cron", data.imdb_cron)
@@ -74,7 +79,11 @@ def get_watched(db: Session = Depends(get_db), user: User = Depends(require_user
 
 def _get_setting(db: Session, key: str, default: str = "") -> str:
     setting = db.query(Setting).filter(Setting.key == key).first()
-    return setting.value if setting and setting.value else default
+    # 区分 '行不存在'(→ default) vs '行存在但值为空字符串'(→ 返回空字符串)
+    # 同时防护 value=NULL（手动编辑 DB 或迁移问题）
+    if setting is None or setting.value is None:
+        return default
+    return setting.value
 
 
 def _set_setting(db: Session, key: str, value: str):

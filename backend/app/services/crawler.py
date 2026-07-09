@@ -226,6 +226,9 @@ def _trigger_metadata_backfill():
         logger.info("Metadata backfill already active, skipping auto-trigger")
         return
 
+    # 立即标记为活跃，防止定时任务在窗口期内重复触发
+    meta_progress["active"] = True
+
     def _run():
         try:
             logger.info("Auto-triggering metadata backfill after Douban crawl...")
@@ -233,6 +236,10 @@ def _trigger_metadata_backfill():
             logger.info(f"Metadata backfill completed: {result}")
         except Exception as e:
             logger.error(f"Metadata backfill failed: {e}")
+        finally:
+            # 防御性复位：run_backfill() 内部已在成功/异常路径复位 active，
+            # 此处保险防止 run_backfill 重构时遗漏复位导致 active 永久卡死。
+            meta_progress["active"] = False
 
     threading.Thread(target=_run, daemon=True, name="meta-backfill").start()
     logger.info("Metadata backfill thread started")

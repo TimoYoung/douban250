@@ -20,7 +20,7 @@ export const useSettingsStore = defineStore('settings', {
     // Global settings (admin)
     cronExpression: '0 9 * * 1',
     userScrapeCron: '',
-    metadataCron: '0 5 * * 0',
+    metadataCron: '',
     imdbCron: '0 4 * * *',
     // Status
     crawlStatus: null,
@@ -57,7 +57,7 @@ export const useSettingsStore = defineStore('settings', {
         const { data } = await fetchSettings()
         this.cronExpression = data.cron_expression
         this.userScrapeCron = data.user_scrape_cron || ''
-        this.metadataCron = data.metadata_cron || '0 5 * * 0'
+        this.metadataCron = data.metadata_cron || ''
         this.imdbCron = data.imdb_cron || '0 4 * * *'
         this.retryInterval = data.retry_interval || 3600
         this.maxRetries = data.max_retries || 3
@@ -79,7 +79,7 @@ export const useSettingsStore = defineStore('settings', {
         })
         this.cronExpression = data.cron_expression
         this.userScrapeCron = data.user_scrape_cron || ''
-        this.metadataCron = data.metadata_cron || '0 5 * * 0'
+        this.metadataCron = data.metadata_cron || ''
         this.imdbCron = data.imdb_cron || '0 4 * * *'
         this.retryInterval = data.retry_interval || 3600
         this.maxRetries = data.max_retries || 3

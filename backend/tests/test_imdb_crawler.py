@@ -147,7 +147,7 @@ class TestFetchImdbIdFromDoubanDetailExceptions:
 
             assert result == (None, None)
             # 重试了 max_retries 次
-            assert mock_fetcher.fetch_page.call_count == settings.max_retries
+            assert mock_fetcher.fetch_page.call_count == settings.douban_http_max_retries
 
     def test_error_page_returns_none(self):
         """When the fetcher raises AntiCrawlBlock for error pages

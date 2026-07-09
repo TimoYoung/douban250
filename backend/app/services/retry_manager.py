@@ -89,7 +89,9 @@ class RetryManager:
     def _get_setting(self, db, key: str, default: str) -> str:
         """从数据库获取设置值"""
         setting = db.query(Setting).filter(Setting.key == key).first()
-        return setting.value if setting and setting.value else default
+        if setting is None or setting.value is None:
+            return default
+        return setting.value
 
     def schedule_retry(self, job_type: str, error_message: str, crawl_log_id: Optional[int] = None) -> bool:
         """

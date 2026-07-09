@@ -346,7 +346,7 @@ def _fetch_imdb_id_from_douban_detail(douban_id: str) -> tuple[str | None, str |
     url = f'https://movie.douban.com/subject/{douban_id}/'
     fetcher = get_douban_fetcher()
 
-    for attempt in range(settings.max_retries):
+    for attempt in range(settings.douban_http_max_retries):
         try:
             text = fetcher.fetch_page(url)
             # 格式1: 链接形式 imdb.com/title/ttXXXXXXX
@@ -362,7 +362,7 @@ def _fetch_imdb_id_from_douban_detail(douban_id: str) -> tuple[str | None, str |
             logger.warning(f"详情页反爬封锁（跳过该候选）: {url} - {e}")
             return (None, None)  # 不重试，该候选无法验证
         except Exception as e:
-            if attempt < settings.max_retries - 1:
+            if attempt < settings.douban_http_max_retries - 1:
                 logger.warning(f"详情页请求失败 (重试 {attempt+1}): {url} - {e}")
                 time.sleep(settings.douban_request_delay * (attempt + 1))
             else:
@@ -757,6 +757,9 @@ def _trigger_metadata_backfill():
         logger.info("Metadata backfill already active, skipping auto-trigger")
         return
 
+    # 立即标记为活跃，防止定时任务在窗口期内重复触发
+    meta_progress["active"] = True
+
     def _run():
         try:
             logger.info("Auto-triggering metadata backfill after IMDb crawl...")
@@ -764,6 +767,10 @@ def _trigger_metadata_backfill():
             logger.info(f"Metadata backfill completed: {result}")
         except Exception as e:
             logger.error(f"Metadata backfill failed: {e}")
+        finally:
+            # 防御性复位：run_backfill() 内部已在成功/异常路径复位 active，
+            # 此处保险防止 run_backfill 重构时遗漏复位导致 active 永久卡死。
+            meta_progress["active"] = False
 
     thread = threading.Thread(target=_run, daemon=True, name="meta-backfill")
     thread.start()

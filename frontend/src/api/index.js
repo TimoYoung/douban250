@@ -270,6 +270,14 @@ export function fetchVersionTags(source = 'douban') {
   return api.get('/analytics/version-tags', { params: { source } })
 }
 
+export function fetchRecentDebuts(topN = 3) {
+  return api.get('/analytics/recent-debuts', { params: { top_n: topN } })
+}
+
+export function fetchRecentDrops(topN = 3) {
+  return api.get('/analytics/recent-drops', { params: { top_n: topN } })
+}
+
 export function fetchTimelineSnapshot(tag, source = 'douban') {
   return api.get('/analytics/timeline-snapshot', { params: { tag, source } })
 }

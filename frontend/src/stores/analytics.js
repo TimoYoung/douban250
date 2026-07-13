@@ -5,6 +5,8 @@ import {
   fetchUniqueMovies,
   fetchDistribution,
   fetchVersionTags,
+  fetchRecentDebuts,
+  fetchRecentDrops,
 } from '../api/index.js'
 
 // 模块级请求计数器，非响应式（无需触发 Vue 依赖通知）
@@ -28,6 +30,12 @@ export const useAnalyticsStore = defineStore('analytics', {
 
     // Version tags for timeline
     versionTags: { douban: [], imdb: [] },
+
+    // Recent debuts (最近首次入榜)
+    recentDebuts: { douban: [], imdb: [] },
+
+    // Recent drops (最近跌出榜)
+    recentDrops: { douban: [], imdb: [] },
   }),
 
   actions: {
@@ -82,6 +90,16 @@ export const useAnalyticsStore = defineStore('analytics', {
     async loadVersionTags(source = 'douban') {
       const { data } = await fetchVersionTags(source)
       this.versionTags[source] = data
+    },
+
+    async loadRecentDebuts(topN = 3) {
+      const { data } = await fetchRecentDebuts(topN)
+      this.recentDebuts = data
+    },
+
+    async loadRecentDrops(topN = 3) {
+      const { data } = await fetchRecentDrops(topN)
+      this.recentDrops = data
     },
   },
 })

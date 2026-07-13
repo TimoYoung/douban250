@@ -15,6 +15,12 @@ class KpiChanges(BaseModel):
     removed: int = 0
 
 
+class RankChangeSummary(BaseModel):
+    """排名变动: latest vs 上一版本的排名升降 Top 5"""
+    risers_top5: list[dict] = []     # [{movie_id, douban_id, title, poster_path, rank_change, current_rank}]
+    fallers_top5: list[dict] = []
+
+
 class LatestChanges(BaseModel):
     """某源最新 vs 上一个有电影进出的版本的变动摘要"""
     added: int = 0
@@ -38,6 +44,7 @@ class SourceDetail(BeijingBaseModel):
     prev_changed_version_id: Optional[int] = None
     version_count: int = 0
     kpi_changes: KpiChanges = KpiChanges()              # KPI: latest vs prev_ver
+    rank_changes: RankChangeSummary = RankChangeSummary()  # 排名变动: latest vs prev_ver
     changes: LatestChanges = LatestChanges()            # 变动卡片: latest vs prev_changed
 
 
@@ -113,3 +120,47 @@ class VersionTagInfo(BeijingBaseModel):
     tag: str
     movie_count: int = 0
     crawled_at: datetime
+
+
+# ── Recent Debuts (最近首次入榜) ──
+
+
+class DebutMovie(BeijingBaseModel):
+    movie_id: int
+    douban_id: Optional[str] = None
+    title: str
+    poster_path: Optional[str] = None
+    debut_rank: int = 0
+
+
+class DebutGroup(BeijingBaseModel):
+    debut_tag: str
+    debut_version_id: int
+    movies: list[DebutMovie] = []
+
+
+class RecentDebutsResponse(BeijingBaseModel):
+    douban: list[DebutGroup] = []
+    imdb: list[DebutGroup] = []
+
+
+# ── Recent Drops (最近跌出榜) ──
+
+
+class DropMovie(BeijingBaseModel):
+    movie_id: int
+    douban_id: Optional[str] = None
+    title: str
+    poster_path: Optional[str] = None
+    drop_rank: int = 0        # 最后上榜版本的排名
+
+
+class DropGroup(BeijingBaseModel):
+    drop_tag: str             # 跌出发生的版本 tag（= last_appearance_version + 1）
+    drop_version_id: int
+    movies: list[DropMovie] = []
+
+
+class RecentDropsResponse(BeijingBaseModel):
+    douban: list[DropGroup] = []
+    imdb: list[DropGroup] = []

@@ -1,3 +1,4 @@
+from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from app.schemas.analytics import (
     SourceDetail,
     LatestChanges,
     KpiChanges,
+    RankChangeSummary,
     OverlapData,
     MovieBrief,
     UniqueMoviesReport,
@@ -17,6 +19,12 @@ from app.schemas.analytics import (
     TimelineSnapshot,
     SnapshotEntry,
     VersionTagInfo,
+    RecentDebutsResponse,
+    DebutGroup,
+    DebutMovie,
+    RecentDropsResponse,
+    DropGroup,
+    DropMovie,
 )
 
 router = APIRouter()
@@ -74,9 +82,14 @@ def _get_next_fire_time(job_id: str):
     return None
 
 
-def _find_prev_changed_version(db: Session, source: str, latest_ver: Version) -> Version | None:
-    """从 latest_ver 往前遍历，找到最近一个电影集合与 latest_ver 不同的版本。"""
-    latest_entries = _version_entries_map(db, latest_ver.id)
+def _find_prev_changed_version(
+    db: Session, source: str, latest_ver: Version,
+    latest_entries: dict[int, VersionEntry] | None = None,
+) -> Version | None:
+    """从 latest_ver 往前遍历，找到最近一个电影集合与 latest_ver 不同的版本。
+    latest_entries 可由调用方传入以避免重复查询。"""
+    if latest_entries is None:
+        latest_entries = _version_entries_map(db, latest_ver.id)
     latest_ids = set(latest_entries.keys())
 
     prev_versions = (
@@ -87,6 +100,11 @@ def _find_prev_changed_version(db: Session, source: str, latest_ver: Version) ->
     )
 
     for prev_ver in prev_versions:
+        # 快速排除：存储的 movie_count 不同 → 集合必然不同
+        # 使用 latest_ver.movie_count（而非 len(latest_ids)）保持两侧同为存储快照
+        if prev_ver.movie_count != latest_ver.movie_count:
+            return prev_ver
+        # 数量相同时才加载 entries 做精确比较
         prev_entries = _version_entries_map(db, prev_ver.id)
         prev_ids = set(prev_entries.keys())
         if prev_ids != latest_ids:
@@ -220,30 +238,64 @@ def get_dashboard(db: Session = Depends(get_db)):
         )
 
         # 上一个有电影进出的版本 (变动卡片用)
-        prev_changed = _find_prev_changed_version(db, source, ver)
+        # 预加载当前版本的 entries（同时传给 _find_prev_changed_version 避免重复查询）
+        cur_entries = _version_entries_map(db, ver.id)
+        cur_ids = set(cur_entries.keys())
+
+        prev_changed = _find_prev_changed_version(db, source, ver, latest_entries=cur_entries)
+
+        prev_entries = _version_entries_map(db, prev_ver.id) if prev_ver else None
+        prev_ids = set(prev_entries.keys()) if prev_entries else None
 
         # ── KPI: latest vs prev_ver (仅计数) ──
         kpi_changes = KpiChanges()
-        if prev_ver:
-            cur_ids_kpi = set(_version_entries_map(db, ver.id).keys())
-            prev_ids_kpi = set(_version_entries_map(db, prev_ver.id).keys())
+        if prev_entries is not None:
             kpi_changes = KpiChanges(
-                added=len(cur_ids_kpi - prev_ids_kpi),
-                removed=len(prev_ids_kpi - cur_ids_kpi),
+                added=len(cur_ids - prev_ids),
+                removed=len(prev_ids - cur_ids),
+            )
+
+        # ── 排名变动: latest vs prev_ver ──
+        rank_changes = RankChangeSummary()
+        if prev_entries is not None:
+            common_rc = cur_ids & prev_ids
+            meta_rc = _movie_metadata_map(db, common_rc)
+            risers_rc, fallers_rc = [], []
+            for mid in common_rc:
+                delta = prev_entries[mid].rank - cur_entries[mid].rank
+                if delta != 0:
+                    m = meta_rc.get(mid)
+                    entry = {
+                        "movie_id": mid,
+                        "douban_id": m.douban_id if m else None,
+                        "title": m.title if m else "Unknown",
+                        "poster_path": m.poster_path if m else None,
+                        "rank_change": delta,
+                        "current_rank": cur_entries[mid].rank,
+                    }
+                    (risers_rc if delta > 0 else fallers_rc).append(entry)
+            risers_rc.sort(key=lambda x: x["rank_change"], reverse=True)
+            fallers_rc.sort(key=lambda x: x["rank_change"])
+            rank_changes = RankChangeSummary(
+                risers_top5=risers_rc[:5],
+                fallers_top5=fallers_rc[:5],
             )
 
         # ── 变动卡片: latest vs prev_changed (详细) ──
         changes = LatestChanges()
         compare_ver = prev_changed  # 变动卡片用 prev_changed
         if compare_ver:
-            cur_entries = _version_entries_map(db, ver.id)
-            prev_entries = _version_entries_map(db, compare_ver.id)
-            cur_ids = set(cur_entries.keys())
-            prev_ids = set(prev_entries.keys())
+            # 复用已加载的 prev_entries（如果 prev_changed 和 prev_ver 是同一个版本）
+            if compare_ver.id == (prev_ver.id if prev_ver else None):
+                prev_cmp_entries = prev_entries
+                cmp_ids = prev_ids
+            else:
+                prev_cmp_entries = _version_entries_map(db, compare_ver.id)
+                cmp_ids = set(prev_cmp_entries.keys())
 
-            added_ids = cur_ids - prev_ids
-            removed_ids = prev_ids - cur_ids
-            common_ids = cur_ids & prev_ids
+            added_ids = cur_ids - cmp_ids
+            removed_ids = cmp_ids - cur_ids
+            common_ids = cur_ids & cmp_ids
 
             # 批量获取元数据
             all_ids = added_ids | removed_ids | common_ids
@@ -273,7 +325,7 @@ def get_dashboard(db: Session = Depends(get_db)):
                         "douban_id": m.douban_id,
                         "title": m.title,
                         "poster_path": m.poster_path,
-                        "rank": prev_entries[mid].rank,
+                        "rank": prev_cmp_entries[mid].rank,
                     })
             removed_movies.sort(key=lambda x: x["rank"])
 
@@ -281,7 +333,7 @@ def get_dashboard(db: Session = Depends(get_db)):
             risers = []
             fallers = []
             for mid in common_ids:
-                delta = prev_entries[mid].rank - cur_entries[mid].rank  # 正=上升
+                delta = prev_cmp_entries[mid].rank - cur_entries[mid].rank  # 正=上升
                 if delta != 0:
                     m = meta_map.get(mid)
                     entry = {
@@ -302,9 +354,9 @@ def get_dashboard(db: Session = Depends(get_db)):
             # 平均评分变化
             if common_ids:
                 deltas = [
-                    cur_entries[mid].rating - prev_entries[mid].rating
+                    cur_entries[mid].rating - prev_cmp_entries[mid].rating
                     for mid in common_ids
-                    if cur_entries[mid].rating is not None and prev_entries[mid].rating is not None
+                    if cur_entries[mid].rating is not None and prev_cmp_entries[mid].rating is not None
                 ]
                 avg_delta = sum(deltas) / len(deltas) if deltas else 0.0
             else:
@@ -331,6 +383,7 @@ def get_dashboard(db: Session = Depends(get_db)):
             prev_changed_version_id=prev_changed.id if prev_changed else None,
             version_count=ver_count,
             kpi_changes=kpi_changes,
+            rank_changes=rank_changes,
             changes=changes,
         )
 
@@ -567,3 +620,177 @@ def get_timeline_snapshot(
         ))
 
     return TimelineSnapshot(tag=tag, source=source, movies=movies)
+
+
+# ── Recent Debuts / Drops 共享辅助 ──
+
+
+def _load_source_versions(db: Session, source: str) -> list[Version]:
+    """取某 source 所有 confirmed 版本，按 tag 正序"""
+    return (
+        db.query(Version)
+        .filter(Version.source == source, Version.status == "confirmed")
+        .order_by(Version.tag.asc())
+        .all()
+    )
+
+
+def _batch_version_movie_pairs(db: Session, versions: list[Version]) -> list[tuple[int, int]]:
+    """批量获取多个版本的 (version_id, movie_id)，按 tag 正序返回"""
+    ver_ids = [v.id for v in versions]
+    ver_tag_by_id = {v.id: v.tag for v in versions}
+    pairs = (
+        db.query(VersionEntry.version_id, VersionEntry.movie_id)
+        .filter(VersionEntry.version_id.in_(ver_ids))
+        .all()
+    )
+    pairs.sort(key=lambda e: ver_tag_by_id[e[0]])
+    return pairs
+
+
+def _build_movie_groups(
+    db: Session,
+    movie_mapping: dict[int, tuple[str, int]],
+    rank_lookup: dict[int, int],
+    top_n: int,
+    group_factory,   # (tag: str, vid: int, movies: list) -> GroupModel
+    movie_factory,   # (mid: int, movie: Movie, rank: int|None) -> MovieModel|None
+    rank_attr: str,  # 排序用的排名属性名 ('debut_rank' / 'drop_rank')
+) -> list:
+    """通用: 将 movie_mapping 按版本分组 → 取 top_n → 批量加载元数据/排名 → 构建响应。
+    movie_mapping: movie_id → (tag, version_id)  — 入榜/末次出现的版本
+    rank_lookup:   movie_id → version_id          — 查排名用的版本"""
+    groups: dict[tuple[str, int], list[int]] = defaultdict(list)
+    for mid, (tag, vid) in movie_mapping.items():
+        groups[(tag, vid)].append(mid)
+
+    sorted_keys = sorted(groups.keys(), key=lambda x: x[0], reverse=True)
+
+    # 只收集 top_n 分组中实际用到的 movie_id 和 version_id
+    needed_movie_ids: set[int] = set()
+    needed_vids: set[int] = set()
+    for key in sorted_keys[:top_n]:
+        mids = groups.get(key, [])
+        needed_movie_ids.update(mids)
+    for mid in needed_movie_ids:
+        if mid in rank_lookup:
+            needed_vids.add(rank_lookup[mid])
+
+    meta_map = _movie_metadata_map(db, needed_movie_ids)
+    entries_by_ver = {vid: _version_entries_map(db, vid) for vid in needed_vids}
+
+    result = []
+    for tag, vid in sorted_keys[:top_n]:
+        entries = entries_by_ver.get(vid, {})
+        movies = []
+        for mid in groups[(tag, vid)]:
+            m = meta_map.get(mid)
+            if m:
+                rank = entries[mid].rank if mid in entries else None
+                movie = movie_factory(mid, m, rank)
+                if movie:
+                    movies.append(movie)
+        movies.sort(key=lambda x: getattr(x, rank_attr))
+        result.append(group_factory(tag, vid, movies))
+    return result
+
+
+# ── Recent Debuts (最近首次入榜) ──
+
+
+@router.get("/recent-debuts", response_model=RecentDebutsResponse)
+def get_recent_debuts(
+    top_n: int = Query(3, ge=1, le=10),
+    db: Session = Depends(get_db),
+):
+    """
+    最近首次入榜的电影，按首次入榜版本时间倒序。
+    top_n 控制取最近几个不同版本的首次入榜电影（允许并列：同版本入榜的多部都展示）。
+    """
+    result = {"douban": [], "imdb": []}
+
+    for source in ["douban", "imdb"]:
+        versions = _load_source_versions(db, source)
+        if not versions:
+            continue
+
+        all_entries = _batch_version_movie_pairs(db, versions)
+        ver_tag_by_id = {v.id: v.tag for v in versions}
+
+        # 对每部电影找首次出现的版本
+        movie_debut = {}  # movie_id -> (tag, version_id)
+        for vid, mid in all_entries:
+            if mid not in movie_debut:
+                movie_debut[mid] = (ver_tag_by_id[vid], vid)
+
+        result[source] = _build_movie_groups(
+            db,
+            movie_mapping=movie_debut,
+            rank_lookup={mid: vid for mid, (_, vid) in movie_debut.items()},
+            top_n=top_n,
+            group_factory=lambda t, v, m: DebutGroup(debut_tag=t, debut_version_id=v, movies=m),
+            movie_factory=lambda mid, m, r: DebutMovie(
+                movie_id=mid, douban_id=m.douban_id, title=m.title,
+                poster_path=m.poster_path, debut_rank=r or 0,
+            ),
+            rank_attr='debut_rank',
+        )
+
+    return RecentDebutsResponse(**result)
+
+
+@router.get("/recent-drops", response_model=RecentDropsResponse)
+def get_recent_drops(
+    top_n: int = Query(3, ge=1, le=10),
+    db: Session = Depends(get_db),
+):
+    """
+    最近跌出榜的电影，按跌出版本时间倒序。
+    跌出语义：电影最后出现在版本 N，则在版本 N+1 显示为"跌出"。
+    top_n 控制取最近几个不同版本的跌出电影（同版本跌出的多部都展示）。
+    """
+    result = {"douban": [], "imdb": []}
+
+    for source in ["douban", "imdb"]:
+        versions = _load_source_versions(db, source)
+        if len(versions) < 2:
+            continue
+
+        ver_index = {v.tag: i for i, v in enumerate(versions)}
+        ver_id_to_tag = {v.id: v.tag for v in versions}
+        latest_ver = versions[-1]
+
+        all_entries = _batch_version_movie_pairs(db, versions)
+
+        # 对每部电影找最后出现的版本
+        movie_last = {}  # movie_id -> (tag, version_id)
+        for vid, mid in all_entries:
+            movie_last[mid] = (ver_id_to_tag[vid], vid)
+
+        # 排除最新版本的电影（还在榜上），构建跌出映射
+        drop_mapping = {}  # movie_id → (drop_tag, drop_version_id)
+        movie_last_ver = {}  # movie_id → last version_id (查排名用)
+        for mid, (last_tag, last_vid) in movie_last.items():
+            if last_tag == latest_ver.tag:
+                continue
+            idx = ver_index[last_tag]
+            if idx + 1 >= len(versions):
+                continue
+            drop_ver = versions[idx + 1]
+            drop_mapping[mid] = (drop_ver.tag, drop_ver.id)
+            movie_last_ver[mid] = last_vid
+
+        result[source] = _build_movie_groups(
+            db,
+            movie_mapping=drop_mapping,
+            rank_lookup=movie_last_ver,
+            top_n=top_n,
+            group_factory=lambda t, v, m: DropGroup(drop_tag=t, drop_version_id=v, movies=m),
+            movie_factory=lambda mid, m, r: DropMovie(
+                movie_id=mid, douban_id=m.douban_id, title=m.title,
+                poster_path=m.poster_path, drop_rank=r or 0,
+            ),
+            rank_attr='drop_rank',
+        )
+
+    return RecentDropsResponse(**result)

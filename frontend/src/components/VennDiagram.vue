@@ -3,12 +3,12 @@
     <svg viewBox="0 0 420 160" class="venn-svg">
       <circle :cx="155" :cy="80" :r="75" :fill="colorAFill" :stroke="colorA" stroke-width="1.5"/>
       <circle :cx="265" :cy="80" :r="75" :fill="colorBFill" :stroke="colorB" stroke-width="1.5" :stroke-dasharray="dashed ? '4 2' : undefined"/>
-      <text :x="105" y="75" text-anchor="middle" class="venn-num">{{ onlyA }}</text>
-      <text :x="105" y="95" text-anchor="middle" class="venn-sub">{{ labelA }}</text>
+      <text :x="120" y="75" text-anchor="middle" class="venn-num">{{ onlyA }}</text>
+      <text :x="120" y="95" text-anchor="middle" class="venn-sub">{{ labelA }}</text>
       <text :x="210" y="75" text-anchor="middle" class="venn-num venn-center-num">{{ both }}</text>
       <text :x="210" y="95" text-anchor="middle" class="venn-sub">{{ labelCenter }}</text>
-      <text :x="315" y="75" text-anchor="middle" class="venn-num">{{ onlyB }}</text>
-      <text :x="315" y="95" text-anchor="middle" class="venn-sub">{{ labelB }}</text>
+      <text :x="300" y="75" text-anchor="middle" class="venn-num">{{ onlyB }}</text>
+      <text :x="300" y="95" text-anchor="middle" class="venn-sub">{{ labelB }}</text>
     </svg>
   </div>
 </template>

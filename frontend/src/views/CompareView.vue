@@ -20,7 +20,7 @@
           />
         </div>
 
-        <span class="arrow">→</span>
+        <span class="vs-badge">VS</span>
 
         <!-- Version B -->
         <div class="selector-group">
@@ -516,11 +516,16 @@ function goDetail(movie) {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
-.arrow {
-  color: #d4d4d8;
-  font-size: 18px;
-  padding-bottom: 8px;
+.vs-badge {
+  font-size: 13px;
+  font-weight: 700;
+  color: #a1a1aa;
+  background: #f4f4f5;
+  padding: 2px 8px;
+  border-radius: 4px;
   flex-shrink: 0;
+  align-self: center;
+  margin-bottom: 8px;
 }
 
 /* Comparison header */
@@ -743,7 +748,7 @@ function goDetail(movie) {
 
 @media (max-width: 640px) {
   .selectors { flex-direction: column; gap: 12px; }
-  .arrow { display: none; }
+  .vs-badge { display: none; }
   .selector-group { min-width: 100%; }
   .ch-hint { margin-left: 0; width: 100%; }
 }

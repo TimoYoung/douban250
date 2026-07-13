@@ -4,7 +4,12 @@ import { useAuthStore } from '../stores/auth.js'
 const routes = [
   {
     path: '/',
-    redirect: '/explore',
+    redirect: '/dashboard',
+  },
+  {
+    path: '/dashboard',
+    name: 'Dashboard',
+    component: () => import('../views/DashboardView.vue'),
   },
   {
     path: '/movies',

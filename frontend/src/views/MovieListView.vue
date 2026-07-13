@@ -85,6 +85,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useMoviesStore } from '../stores/movies.js'
 import { useVersionsStore } from '../stores/versions.js'
 import { useAuthStore } from '../stores/auth.js'
@@ -95,6 +96,7 @@ import MovieCard from '../components/MovieCard.vue'
 import MovieListTable from '../components/MovieListTable.vue'
 import BubbleGrid from '../components/BubbleGrid.vue'
 
+const route = useRoute()
 const store = useMoviesStore()
 const versionsStore = useVersionsStore()
 const authStore = useAuthStore()
@@ -120,6 +122,24 @@ const globalResults = computed(() => {
 
 onMounted(async () => {
   await versionsStore.loadVersions()
+
+  // 从 URL 参数恢复版本选择（来自 DashboardView "查看详情" 跳转）
+  const urlSource = route.query.source
+  const urlVersionId = route.query.version_id
+  if (urlSource && (urlSource === 'douban' || urlSource === 'imdb')) {
+    versionsStore.setSourceFilter(urlSource)
+  }
+  if (urlVersionId) {
+    const vid = Number(urlVersionId)
+    // 验证 version_id 属于当前 source filter，避免跨源错乱
+    if (Number.isFinite(vid) && vid > 0) {
+      const matches = versionsStore.filteredVersions.filter(v => v.id === vid)
+      if (matches.length > 0) {
+        versionsStore.currentVersionId = vid
+      }
+    }
+  }
+
   await Promise.all([
     loadMovies(buildParams()),
     store.loadBubbles(versionsStore.currentVersionId),

@@ -19,6 +19,7 @@ function onLogout() {
         <span>Top250 Tracker</span>
       </router-link>
       <div class="nav-links">
+        <router-link to="/dashboard">概览</router-link>
         <router-link to="/explore">探索</router-link>
         <router-link to="/movies">版本列表</router-link>
         <router-link to="/compare">版本对比</router-link>

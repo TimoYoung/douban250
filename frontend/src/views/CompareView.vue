@@ -36,7 +36,6 @@
             :versions="versionsBList"
             v-model="versionBId"
             :disabled="usePrev"
-            @update:modelValue="loadCompare"
           />
         </div>
       </div>
@@ -71,6 +70,40 @@
         </span>
       </div>
 
+      <!-- Venn diagram (cross-platform only) -->
+      <div class="section" v-if="rawData && isCrossPlatform">
+        <div class="venn-bar">
+          <VennDiagram
+            :only-a="displayData.summary.only_a_count"
+            :both="displayData.summary.common_count"
+            :only-b="displayData.summary.only_b_count"
+            :label-a="displayData.labelOnlyA"
+            label-center="共同"
+            :label-b="displayData.labelOnlyB"
+          />
+        </div>
+      </div>
+
+      <!-- Distribution stats (cross-platform only, moved right after Venn) -->
+      <div class="section" v-if="isCrossPlatform && compareDistData">
+        <div class="section-inner" style="padding: 16px 20px;">
+          <div class="dist-header">
+            <span class="section-title">📊 分布统计（两榜对比）</span>
+            <div class="dist-tabs">
+              <button :class="{ active: distTab === 'genres' }" @click="distTab = 'genres'">类型</button>
+              <button :class="{ active: distTab === 'countries' }" @click="distTab = 'countries'">国家</button>
+              <button :class="{ active: distTab === 'years' }" @click="distTab = 'years'">年代</button>
+            </div>
+          </div>
+          <DistributionChart
+            :labels="distChartLabels"
+            :douban-values="distDoubanValues"
+            :imdb-values="distImdbValues"
+            :is-compare="true"
+          />
+        </div>
+      </div>
+
       <!-- Only in display A -->
       <div class="section" v-if="displayData.display_only_a.length">
         <details open>
@@ -96,35 +129,6 @@
               #{{ m.rank }} {{ m.title }}
             </span>
           </div>
-        </details>
-      </div>
-
-      <!-- Cross-platform: common with delta -->
-      <div class="section" v-if="!displayData.same_source && displayData.display_common.length">
-        <details open>
-          <summary class="section-title">
-            排名差异（{{ displayData.display_common.length }} 部，差异最大 Top 20）
-          </summary>
-          <table class="compare-table">
-            <thead>
-              <tr>
-                <th>电影</th>
-                <th>{{ sourceLabels[displayData.display_a.source] }} 排名</th>
-                <th>{{ sourceLabels[displayData.display_b.source] }} 排名</th>
-                <th>变化</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="m in displayData.display_common.slice(0, 20)" :key="m.movie_id" @click="goDetail(m)">
-                <td class="col-title">{{ m.title }}</td>
-                <td class="col-rank">#{{ m.display_rank_a }}</td>
-                <td class="col-rank">#{{ m.display_rank_b }}</td>
-                <td class="col-delta" :class="deltaClass(m.display_delta)">
-                  {{ m.display_delta > 0 ? `▲${m.display_delta}` : m.display_delta < 0 ? `▼${Math.abs(m.display_delta)}` : '=' }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
         </details>
       </div>
 
@@ -174,11 +178,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useVersionsStore } from '../stores/versions.js'
-import { fetchCompare } from '../api/index.js'
+import { fetchCompare, fetchDistribution } from '../api/index.js'
 import VersionDropdown from '../components/VersionDropdown.vue'
+import DistributionChart from '../components/DistributionChart.vue'
+import VennDiagram from '../components/VennDiagram.vue'
+import { useDistributionChartData } from '../composables/useDistributionChartData.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -342,7 +349,6 @@ const displayData = computed(() => {
     display_b: displayB,
     display_only_a: onlyA,
     display_only_b: onlyB,
-    display_common: common,
     rank_up: rankUp,
     rank_down: rankDown,
     labelOnlyA,
@@ -359,18 +365,72 @@ async function loadCompare() {
   }
 
   loading.value = true
+  // Fix #2: 在新请求开始时立即清除旧的分布数据，防止过期数据在窗口期内显示
+  compareDistData.value = null
   try {
     const { data: result } = await fetchCompare(versionAId.value, effectiveB)
     rawData.value = result
+
+    // Load distribution data when in cross-platform mode
+    if (isCrossPlatform.value) {
+      loadDistData()
+    }
   } finally {
     loading.value = false
   }
 }
 
-function deltaClass(delta) {
-  if (delta > 0) return 'delta-up'
-  if (delta < 0) return 'delta-down'
-  return ''
+// Cross-platform mode detection
+const isCrossPlatform = computed(() => {
+  if (!rawData.value) return false
+  return !rawData.value.same_source
+})
+
+// 切换模式时清除旧的分布数据
+watch(isCrossPlatform, (cross) => {
+  if (!cross) compareDistData.value = null
+})
+
+// Distribution chart state
+const distTab = ref('genres')
+const compareDistData = ref(null)
+
+// 分布图 chart computed（共享 composable，始终 compare 模式）
+const {
+  labels: distChartLabels,
+  doubanValues: distDoubanValues,
+  imdbValues: distImdbValues,
+} = useDistributionChartData(
+  compareDistData,
+  distTab,
+  true,
+  '#1890ff'
+)
+
+// Fix #2: 分布请求计数器，防止过期响应覆盖新数据
+let distRequestId = 0
+
+async function loadDistData() {
+  if (!rawData.value) return
+  const myRequestId = ++distRequestId
+  const va = rawData.value.version_a
+  const vb = rawData.value.version_b
+  try {
+    // 从当前对比的版本中提取 tag，用于获取正确的分布数据
+    const params = { limit: 0 }
+    if (va?.source === 'douban') params.douban_tag = va.tag
+    else if (vb?.source === 'douban') params.douban_tag = vb.tag
+    if (va?.source === 'imdb') params.imdb_tag = va.tag
+    else if (vb?.source === 'imdb') params.imdb_tag = vb.tag
+
+    const { data } = await fetchDistribution('compare', params)
+    // 丢弃过期请求的结果
+    if (myRequestId !== distRequestId) return
+    compareDistData.value = data
+  } catch (e) {
+    // 分布图加载失败时保持 compareDistData = null（section 隐藏），输出日志供排查
+    console.warn('[CompareView] loadDistData failed:', e.message || e)
+  }
 }
 
 function goDetail(movie) {
@@ -643,6 +703,43 @@ function goDetail(movie) {
   border: 1px solid rgba(228, 228, 231, 0.6);
   font-size: 13px;
 }
+
+/* Venn diagram */
+.venn-bar {
+  padding: 12px 20px;
+  text-align: center;
+}
+
+/* Distribution */
+.dist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.dist-tabs {
+  display: flex;
+  gap: 0;
+}
+
+.dist-tabs button {
+  padding: 4px 12px;
+  border: 1px solid #e4e4e7;
+  background: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717a;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.dist-tabs button:first-child { border-radius: 5px 0 0 5px; }
+.dist-tabs button:last-child { border-radius: 0 5px 5px 0; border-left: none; }
+.dist-tabs button:not(:first-child):not(:last-child) { border-left: none; }
+.dist-tabs button.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+.dist-tabs button:hover:not(.active) { background: #fafafa; color: #3f3f46; }
 
 @media (max-width: 640px) {
   .selectors { flex-direction: column; gap: 12px; }

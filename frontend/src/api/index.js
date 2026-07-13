@@ -248,4 +248,30 @@ export function deleteBackup(filename) {
   return api.delete(`/backup/files/${filename}`)
 }
 
+// ── Analytics ───────────────────────────────────────────────────────
+
+export function fetchDashboard() {
+  return api.get('/analytics/dashboard')
+}
+
+export function fetchOverlap() {
+  return api.get('/analytics/cross-platform/overlap')
+}
+
+export function fetchUniqueMovies(topN = 10) {
+  return api.get('/analytics/cross-platform/unique-movies', { params: { top_n: topN } })
+}
+
+export function fetchDistribution(source = 'douban', params = {}) {
+  return api.get('/analytics/distribution', { params: { source, ...params } })
+}
+
+export function fetchVersionTags(source = 'douban') {
+  return api.get('/analytics/version-tags', { params: { source } })
+}
+
+export function fetchTimelineSnapshot(tag, source = 'douban') {
+  return api.get('/analytics/timeline-snapshot', { params: { tag, source } })
+}
+
 export default api

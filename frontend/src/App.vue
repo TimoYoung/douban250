@@ -14,7 +14,7 @@ function onLogout() {
 <template>
   <div id="app-layout">
     <nav class="nav-bar">
-      <router-link to="/movies" class="nav-brand">
+      <router-link to="/dashboard" class="nav-brand">
         <div class="brand-mark">T</div>
         <span>Top250 Tracker</span>
       </router-link>

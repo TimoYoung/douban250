@@ -22,7 +22,7 @@ async function onLogin() {
   loading.value = true
   try {
     await authStore.login(username.value, password.value)
-    const redirect = route.query.redirect || '/movies'
+    const redirect = route.query.redirect || '/dashboard'
     router.push(redirect)
   } catch (e) {
     error.value = e.response?.data?.detail || '登录失败'

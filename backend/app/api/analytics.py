@@ -681,11 +681,13 @@ def _build_movie_groups(
 
     result = []
     for tag, vid in sorted_keys[:top_n]:
-        entries = entries_by_ver.get(vid, {})
         movies = []
         for mid in groups[(tag, vid)]:
             m = meta_map.get(mid)
             if m:
+                # 用 rank_lookup 获取该电影查排名用的版本（入榜=首次版本, 跌出=末次版本）
+                lookup_vid = rank_lookup.get(mid, vid)
+                entries = entries_by_ver.get(lookup_vid, {})
                 rank = entries[mid].rank if mid in entries else None
                 movie = movie_factory(mid, m, rank)
                 if movie:

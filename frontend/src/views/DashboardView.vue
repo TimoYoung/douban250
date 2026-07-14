@@ -54,26 +54,32 @@
         </div>
       </div>
 
-      <!-- Rank changes section (latest vs prev version) -->
-      <div class="changes-row">
-        <div class="changes-card" v-for="src in ['douban', 'imdb']" :key="src">
-          <div class="changes-header" :class="src + '-header'">
-            <div class="changes-header-text">
-              <span>{{ src === 'douban' ? '🟦 豆瓣最新排名变化' : '🟨 IMDb 最新排名变化' }}</span>
-              <div class="changes-subtitle" v-if="analytics.dashboard[src].prev_tag">
-                最新 vs 上一版本 · {{ analytics.dashboard[src].prev_tag }} → {{ analytics.dashboard[src].latest_tag }}
-              </div>
-              <div class="changes-subtitle" v-else>首个版本，暂无对比</div>
+      <!-- Source stories -->
+      <div v-for="src in ['douban', 'imdb']" :key="src" class="source-story" :class="src">
+        <div class="source-story-header">
+          <span class="source-story-icon">{{ src === 'douban' ? '🟦' : '🟨' }}</span>
+          <span class="source-story-title">{{ src === 'douban' ? '豆瓣' : 'IMDb' }}</span>
+        </div>
+
+        <!-- 排名变化 -->
+        <div class="source-card">
+          <div class="sc-header">
+            <div class="sc-header-text">
+              <span class="sc-title">排名变化</span>
+              <span class="sc-subtitle" v-if="analytics.dashboard[src].prev_tag">
+                {{ analytics.dashboard[src].prev_tag }} → {{ analytics.dashboard[src].latest_tag }}
+              </span>
+              <span class="sc-subtitle" v-else>首个版本，暂无对比</span>
             </div>
             <router-link
               v-if="analytics.dashboard[src].latest_version_id && analytics.dashboard[src].prev_version_id"
               :to="compareUrl(src, analytics.dashboard[src].latest_version_id, analytics.dashboard[src].prev_version_id)"
               class="view-all">查看全部 →</router-link>
           </div>
-          <div class="changes-body" v-if="analytics.dashboard[src].rank_changes.risers_top5?.length || analytics.dashboard[src].rank_changes.fallers_top5?.length">
+          <div class="sc-body" v-if="analytics.dashboard[src].rank_changes.risers_top5?.length || analytics.dashboard[src].rank_changes.fallers_top5?.length">
             <div class="rank-list-row">
               <div class="rank-list" v-if="analytics.dashboard[src].rank_changes.risers_top5?.length">
-                <div class="changes-label">🔺 上升 Top 5</div>
+                <div class="sc-label">🔺 上升 Top 5</div>
                 <div v-for="m in analytics.dashboard[src].rank_changes.risers_top5" :key="m.movie_id" class="rank-item" @click="goMovieDetail(m)">
                   <span class="rank-title">{{ m.title }}</span>
                   <span class="rank-delta delta-up">▲{{ m.rank_change }}</span>
@@ -81,7 +87,7 @@
                 </div>
               </div>
               <div class="rank-list" v-if="analytics.dashboard[src].rank_changes.fallers_top5?.length">
-                <div class="changes-label">🔻 下降 Top 5</div>
+                <div class="sc-label">🔻 下降 Top 5</div>
                 <div v-for="m in analytics.dashboard[src].rank_changes.fallers_top5" :key="m.movie_id" class="rank-item" @click="goMovieDetail(m)">
                   <span class="rank-title">{{ m.title }}</span>
                   <span class="rank-delta delta-down">▼{{ Math.abs(m.rank_change) }}</span>
@@ -90,37 +96,35 @@
               </div>
             </div>
           </div>
-          <div class="changes-body empty" v-else>暂无排名变动</div>
+          <div class="sc-body sc-empty" v-else>暂无排名变动</div>
         </div>
-      </div>
 
-      <!-- Changes section (latest vs prev_changed — entry/exit) -->
-      <div class="changes-row">
-        <div class="changes-card" v-for="src in ['douban', 'imdb']" :key="src">
-          <div class="changes-header" :class="src + '-header'">
-            <div class="changes-header-text">
-              <span>{{ src === 'douban' ? '🟦 豆瓣进出' : '🟨 IMDb 进出' }}</span>
-              <div class="changes-subtitle" v-if="analytics.dashboard[src].prev_changed_tag">
+        <!-- 进出 -->
+        <div class="source-card">
+          <div class="sc-header">
+            <div class="sc-header-text">
+              <span class="sc-title">进出</span>
+              <span class="sc-subtitle" v-if="analytics.dashboard[src].prev_changed_tag">
                 上次有电影进出 · {{ analytics.dashboard[src].prev_changed_tag }} → {{ analytics.dashboard[src].latest_tag }}
-              </div>
-              <div class="changes-subtitle" v-else>首个版本，暂无对比基准</div>
+              </span>
+              <span class="sc-subtitle" v-else>首个版本，暂无对比基准</span>
             </div>
             <router-link
               v-if="analytics.dashboard[src].latest_version_id && analytics.dashboard[src].prev_changed_version_id"
               :to="compareUrl(src, analytics.dashboard[src].latest_version_id, analytics.dashboard[src].prev_changed_version_id)"
               class="view-all">查看全部 →</router-link>
           </div>
-          <div class="changes-body" v-if="analytics.dashboard[src].changes.added || analytics.dashboard[src].changes.removed">
-            <div class="changes-section" v-if="analytics.dashboard[src].changes.added_movies?.length">
-              <div class="changes-label">🆕 新上榜 ({{ analytics.dashboard[src].changes.added }})</div>
+          <div class="sc-body" v-if="analytics.dashboard[src].changes.added || analytics.dashboard[src].changes.removed">
+            <div class="sc-section" v-if="analytics.dashboard[src].changes.added_movies?.length">
+              <div class="sc-label">🆕 新上榜 ({{ analytics.dashboard[src].changes.added }})</div>
               <div class="movie-chips">
                 <span v-for="m in analytics.dashboard[src].changes.added_movies" :key="m.movie_id" class="chip chip-green" @click="goMovieDetail(m)">
                   #{{ m.rank }} {{ m.title }}
                 </span>
               </div>
             </div>
-            <div class="changes-section" v-if="analytics.dashboard[src].changes.removed_movies?.length">
-              <div class="changes-label">💀 跌出榜 ({{ analytics.dashboard[src].changes.removed }})</div>
+            <div class="sc-section" v-if="analytics.dashboard[src].changes.removed_movies?.length">
+              <div class="sc-label">💀 跌出榜 ({{ analytics.dashboard[src].changes.removed }})</div>
               <div class="movie-chips">
                 <span v-for="m in analytics.dashboard[src].changes.removed_movies" :key="m.movie_id" class="chip chip-red" @click="goMovieDetail(m)">
                   #{{ m.rank }} {{ m.title }}
@@ -128,26 +132,22 @@
               </div>
             </div>
           </div>
-          <div class="changes-body empty" v-else>暂无进出变动</div>
+          <div class="sc-body sc-empty" v-else>暂无进出变动</div>
         </div>
-      </div>
 
-      <!-- Recent debuts + Recent drops row -->
-      <div class="info-row">
-        <!-- Recent debuts card -->
-        <div class="section-card">
-          <div class="section-header">
-            <span class="section-title">🌟 最近首次入榜</span>
+        <!-- 入榜与跌出 (历史纵深) -->
+        <div class="source-card">
+          <div class="sc-header">
+            <span class="sc-title">入榜与跌出</span>
           </div>
-          <div class="debuts-body" v-if="analytics.recentDebuts.douban?.length || analytics.recentDebuts.imdb?.length">
-            <div class="debuts-source" v-for="src in ['douban', 'imdb']" :key="src">
-              <div class="debuts-source-label" :class="src + '-text'">
-                {{ src === 'douban' ? '🟦 豆瓣' : '🟨 IMDb' }}
-              </div>
+          <div class="history-row">
+            <!-- 首次入榜 -->
+            <div class="history-col">
+              <div class="history-col-title">🌟 首次入榜</div>
               <template v-if="analytics.recentDebuts[src]?.length">
                 <div class="debut-group" v-for="group in analytics.recentDebuts[src]" :key="group.debut_version_id">
                   <div class="debut-group-header">
-                    {{ group.debut_tag }} 入榜
+                    {{ group.debut_tag }}
                     <span class="debut-group-count">({{ group.movies.length }} 部)</span>
                   </div>
                   <div class="debut-movies">
@@ -162,26 +162,15 @@
                   </div>
                 </div>
               </template>
-              <div v-else class="debut-empty">暂无数据</div>
+              <div v-else class="history-empty">暂无数据</div>
             </div>
-          </div>
-          <div class="debuts-body empty" v-else>暂无数据</div>
-        </div>
-
-        <!-- Recent drops card -->
-        <div class="section-card">
-          <div class="section-header">
-            <span class="section-title">📉 最近跌出榜</span>
-          </div>
-          <div class="drops-body" v-if="analytics.recentDrops.douban?.length || analytics.recentDrops.imdb?.length">
-            <div class="drops-source" v-for="src in ['douban', 'imdb']" :key="src">
-              <div class="drops-source-label" :class="src + '-text'">
-                {{ src === 'douban' ? '🟦 豆瓣' : '🟨 IMDb' }}
-              </div>
+            <!-- 最近跌出 -->
+            <div class="history-col">
+              <div class="history-col-title">📉 最近跌出</div>
               <template v-if="analytics.recentDrops[src]?.length">
                 <div class="drop-group" v-for="group in analytics.recentDrops[src]" :key="group.drop_version_id">
                   <div class="drop-group-header">
-                    {{ group.drop_tag }} 跌出
+                    {{ group.drop_tag }}
                     <span class="drop-group-count">({{ group.movies.length }} 部)</span>
                   </div>
                   <div class="drop-movies">
@@ -196,10 +185,9 @@
                   </div>
                 </div>
               </template>
-              <div v-else class="drop-empty">暂无数据</div>
+              <div v-else class="history-empty">暂无数据</div>
             </div>
           </div>
-          <div class="drops-body empty" v-else>暂无数据</div>
         </div>
       </div>
 
@@ -625,63 +613,93 @@ function goMovieDetail(movie) {
 .delta-down { color: #f43f5e; font-weight: 600; }
 .no-change { color: #a1a1aa; }
 
-/* Changes row */
-.changes-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+/* Source story blocks */
+.source-story {
   margin-bottom: 20px;
-}
-
-.changes-card {
-  background: #fff;
   border: 1px solid rgba(228, 228, 231, 0.6);
   border-radius: 12px;
   overflow: hidden;
+  background: #fff;
 }
 
-.changes-header {
-  padding: 12px 16px;
-  font-size: 13px;
+.source-story.douban { border-left: 3px solid #1890ff; }
+.source-story.imdb { border-left: 3px solid #f5c518; }
+
+.source-story-header {
+  padding: 10px 16px;
+  font-size: 14px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-story.douban .source-story-header {
+  background: rgba(24, 144, 255, 0.04);
+  color: #1890ff;
+}
+
+.source-story.imdb .source-story-header {
+  background: rgba(245, 197, 24, 0.04);
+  color: #d97706;
+}
+
+.source-story-icon {
+  font-size: 14px;
+}
+
+.source-story-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Cards within source story */
+.source-card {
+  border-top: 1px solid rgba(228, 228, 231, 0.4);
+  padding: 12px 16px;
+}
+
+.sc-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  margin-bottom: 8px;
   gap: 8px;
 }
 
-.changes-header-text {
+.sc-header-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.changes-subtitle {
+.sc-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f3f46;
+}
+
+.sc-subtitle {
   font-size: 11px;
   font-weight: 400;
-  color: #71717a;
+  color: #a1a1aa;
   font-family: 'SF Mono', monospace;
 }
 
-.douban-header { background: rgba(24, 144, 255, 0.06); color: #1890ff; }
-.imdb-header { background: rgba(245, 197, 24, 0.06); color: #d97706; }
+.sc-body { padding: 0; }
 
-.changes-body {
-  padding: 4px 16px 12px;
-}
-
-.changes-body.empty {
+.sc-body.sc-empty {
   text-align: center;
   color: #a1a1aa;
   font-size: 12px;
-  padding: 20px 16px;
+  padding: 16px 0;
 }
 
-.changes-section {
+.sc-section {
   margin-bottom: 10px;
 }
 
-.changes-label {
+.sc-label {
   font-size: 11px;
   font-weight: 600;
   color: #71717a;
@@ -971,42 +989,28 @@ function goMovieDetail(movie) {
   z-index: 1;
 }
 
-/* Info row: cross-platform + recent debuts side by side */
-.info-row {
+/* History row (debuts | drops inside source card) */
+.history-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
-  margin-bottom: 20px;
 }
 
-.info-row .section-card {
-  margin-bottom: 0;
-}
-
-/* Recent debuts card */
-.debuts-body {
-  display: flex;
-  flex-direction: row;
-  gap: 16px;
-}
-
-.debuts-source {
-  flex: 1;
+.history-col {
   min-width: 0;
 }
 
-.debuts-body.empty {
-  justify-content: center;
-  text-align: center;
-  color: #a1a1aa;
-  font-size: 12px;
-  padding: 20px 0;
+.history-col-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #71717a;
+  margin-bottom: 6px;
 }
 
-.debuts-source-label {
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 6px;
+.history-empty {
+  font-size: 11px;
+  color: #a1a1aa;
+  padding: 8px 0;
 }
 
 .debut-group {
@@ -1059,38 +1063,6 @@ function goMovieDetail(movie) {
   white-space: nowrap;
 }
 
-.debut-empty {
-  font-size: 11px;
-  color: #a1a1aa;
-  padding: 8px 0;
-}
-
-/* Recent drops card */
-.drops-body {
-  display: flex;
-  flex-direction: row;
-  gap: 16px;
-}
-
-.drops-source {
-  flex: 1;
-  min-width: 0;
-}
-
-.drops-body.empty {
-  justify-content: center;
-  text-align: center;
-  color: #a1a1aa;
-  font-size: 12px;
-  padding: 20px 0;
-}
-
-.drops-source-label {
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
 .drop-group {
   margin-bottom: 8px;
 }
@@ -1141,20 +1113,12 @@ function goMovieDetail(movie) {
   white-space: nowrap;
 }
 
-.drop-empty {
-  font-size: 11px;
-  color: #a1a1aa;
-  padding: 8px 0;
-}
-
 @media (max-width: 768px) {
   .kpi-row { grid-template-columns: 1fr; }
-  .changes-row { grid-template-columns: 1fr; }
-  .info-row { grid-template-columns: 1fr; }
+  .history-row { grid-template-columns: 1fr; }
   .cross-platform-body { flex-direction: column; }
   .unique-lists { grid-template-columns: 1fr; }
   .rank-list-row { grid-template-columns: 1fr; }
-  .debuts-body, .drops-body { flex-direction: column; }
 }
 
 @media (max-width: 640px) {

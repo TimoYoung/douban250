@@ -301,6 +301,50 @@ def get_dashboard(db: Session = Depends(get_db)):
             all_ids = added_ids | removed_ids | common_ids
             meta_map = _movie_metadata_map(db, all_ids)
 
+            # 新上榜电影: 找到每部电影实际入榜的版本，使用该版本的排名
+            # (而非最新版的排名，因为入榜后排名可能已变化)
+            added_entry_ranks = {}  # movie_id → rank at entry version
+            if added_ids:
+                # 获取 prev_changed 之后、latest 之前的所有版本（按时间顺序）
+                between_versions = (
+                    db.query(Version)
+                    .filter(
+                        Version.source == source,
+                        Version.status == "confirmed",
+                        Version.tag > compare_ver.tag,
+                        Version.tag < ver.tag,
+                    )
+                    .order_by(Version.tag)
+                    .all()
+                )
+                # 批量加载这些版本中新上榜电影的 entries（只取需要的 movie_id）
+                between_vids = [v.id for v in between_versions]
+                between_entries_by_ver: dict[int, dict[int, VersionEntry]] = {}
+                if between_vids:
+                    between_raw = (
+                        db.query(VersionEntry)
+                        .filter(
+                            VersionEntry.version_id.in_(between_vids),
+                            VersionEntry.movie_id.in_(added_ids),
+                        )
+                        .all()
+                    )
+                    for e in between_raw:
+                        between_entries_by_ver.setdefault(e.version_id, {})[e.movie_id] = e
+
+                # 对每部新上榜电影，找到它首次出现的版本
+                remaining = set(added_ids)
+                for v in between_versions:
+                    if not remaining:
+                        break
+                    ver_entries = between_entries_by_ver.get(v.id, {})
+                    for mid in [mid for mid in remaining if mid in ver_entries]:
+                        added_entry_ranks[mid] = ver_entries[mid].rank
+                        remaining.discard(mid)
+                # 仍在 remaining 中的电影 = 在 latest 才首次出现，用 cur_entries
+                for mid in remaining:
+                    added_entry_ranks[mid] = cur_entries[mid].rank
+
             # 新进电影
             added_movies = []
             for mid in added_ids:
@@ -311,7 +355,7 @@ def get_dashboard(db: Session = Depends(get_db)):
                         "douban_id": m.douban_id,
                         "title": m.title,
                         "poster_path": m.poster_path,
-                        "rank": cur_entries[mid].rank,
+                        "rank": added_entry_ranks[mid],
                     })
             added_movies.sort(key=lambda x: x["rank"])
 

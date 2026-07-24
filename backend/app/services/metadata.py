@@ -69,6 +69,27 @@ def _needs_metadata_query():
     )
 
 
+def should_retry_now(movie) -> bool:
+    """Whether a movie should be retried now.
+
+    Returns True when:
+    - No previous attempt (last_meta_attempt is None)
+    - No recorded failures (meta_fetch_failures = 0) — 无需退避
+    - 退避时间已过: min(2^failures, 72) 小时
+    """
+    if movie.last_meta_attempt is None:
+        return True
+    failures = movie.meta_fetch_failures or 0
+    if failures == 0:
+        return True  # 无失败记录，不应用退避
+    hours = min(2 ** failures, 72)
+    # SQLite 返回 naive datetime（无时区），now() 返回 aware
+    # 比较前统一为 naive（去掉时区信息）
+    last_attempt = movie.last_meta_attempt.replace(tzinfo=None)
+    cutoff = now().replace(tzinfo=None) - timedelta(hours=hours)
+    return last_attempt < cutoff
+
+
 def check_cookie_valid(cookie: str = "") -> dict:
     """Check if the Douban cookie is still valid. Returns {valid, message}.
 
@@ -102,6 +123,8 @@ def check_cookie_valid(cookie: str = "") -> dict:
             return {"valid": False, "message": "Cookie 验证失败：反爬挑战未通过"}
         if "CAPTCHA" in msg:
             return {"valid": False, "message": "Cookie 触发验证码"}
+        if re.search(r'HTTP\s+(?:429|502|503|504)\b', msg):
+            return {"valid": False, "message": "请求过于频繁，豆瓣限流中，请稍后重试"}
         logger.warning(f"check_cookie_valid: 未识别的 AntiCrawlBlock: {msg}")
         return {"valid": False, "message": "Cookie 触发反爬机制，请稍后重试"}
     except Exception:
@@ -152,7 +175,9 @@ def parse_detail_page(html: str) -> dict:
         t = head_title.get_text(strip=True)
         # 去掉末尾 " (豆瓣)" 或 " 电影 (豆瓣)" 等后缀
         t = re.sub(r'\s*(?:电影|电视剧|综艺|纪录片)?\s*\(豆瓣\)\s*$', '', t).strip()
-        if t:
+        # 拒绝 HTTP 错误页标题（如 "429 Too Many Requests"、"503 Service Unavailable"）
+        # 这类页面不是真正的电影详情页，提取的标题会污染数据库
+        if t and not re.match(r'^\d{3}\s+\w', t):
             info["title"] = t
 
     info_div = soup.select_one("#info")
@@ -316,21 +341,9 @@ def run_backfill(force: bool = False, mode: str = "incremental") -> dict:
             to_fetch = db.query(Movie).filter(_needs_metadata_query()).all()
 
         # 指数退避过滤：失败次数越多，重试间隔越长
-        # backoff = min(2^failures 小时, 72 小时)
         # force=True 和 mode='full' 跳过退避——用户明确要求立即处理
         if not force and mode != "full":
-            def _should_retry_now(movie):
-                if movie.last_meta_attempt is None:
-                    return True
-                failures = movie.meta_fetch_failures or 0
-                hours = min(2 ** failures, 72)
-                # SQLite 返回 naive datetime（无时区），now() 返回 aware
-                # 比较前统一为 naive（去掉时区信息）
-                last_attempt = movie.last_meta_attempt.replace(tzinfo=None)
-                cutoff = now().replace(tzinfo=None) - timedelta(hours=hours)
-                return last_attempt < cutoff
-
-            to_fetch = [m for m in to_fetch if _should_retry_now(m)]
+            to_fetch = [m for m in to_fetch if should_retry_now(m)]
 
         meta_progress.update({
             "active": True,

@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 
 from app.models.movie import Movie
-from app.services.metadata import _needs_metadata_query
+from app.services.metadata import _needs_metadata_query, should_retry_now
 
 
 class TestNeedsMetadataQuery:
@@ -112,19 +112,103 @@ class TestShouldRetryNowTimezone:
         db.add(m)
         db.commit()
 
-        # Apply the same filter logic as run_backfill's _should_retry_now
+        # Apply should_retry_now to the selected movies
         to_fetch = db.query(Movie).filter(_needs_metadata_query()).all()
-        filtered = []
-        for movie in to_fetch:
-            if movie.last_meta_attempt is None:
-                filtered.append(movie)
-            else:
-                failures = movie.meta_fetch_failures or 0
-                hours = min(2 ** failures, 72)
-                last_attempt = movie.last_meta_attempt.replace(tzinfo=None)
-                cutoff = now().replace(tzinfo=None) - timedelta(hours=hours)
-                if last_attempt < cutoff:
-                    filtered.append(movie)
+        filtered = [m for m in to_fetch if should_retry_now(m)]
 
         # Should not raise TypeError
         assert isinstance(filtered, list)
+
+
+class TestShouldRetryNowBackoff:
+    """should_retry_now applies exponential backoff based on failure count.
+
+    Bug: when meta_fetch_failures=0 but last_meta_attempt is recent
+    (e.g., a 429 was silently swallowed by the old fetcher and counted
+    as "success"), the 2^0=1h backoff blocks the movie for 1 hour.
+    With 0 failures there should be NO backoff — the movie should be
+    retried immediately.
+    """
+
+    def test_no_backoff_when_failures_zero(self, db_factory):
+        """When meta_fetch_failures=0, should_retry_now returns True
+        regardless of how recent last_meta_attempt is."""
+        from app.utils import now
+
+        db = db_factory()
+        m = Movie(
+            douban_id="9999999",
+            title="Test Movie",
+            last_meta_attempt=now(),  # just attempted
+            meta_fetch_failures=0,    # no failures recorded
+        )
+        db.add(m)
+        db.commit()
+
+        assert should_retry_now(m) is True
+
+    def test_backoff_applies_when_failures_positive(self, db_factory):
+        """When meta_fetch_failures > 0 and not enough time elapsed,
+        should_retry_now returns False."""
+        from app.utils import now
+
+        db = db_factory()
+        m = Movie(
+            douban_id="9999999",
+            title="Test Movie",
+            last_meta_attempt=now(),  # just attempted
+            meta_fetch_failures=2,    # 2 failures → 4h backoff
+        )
+        db.add(m)
+        db.commit()
+
+        assert should_retry_now(m) is False
+
+
+class TestParseDetailPageRejectsHttpErrors:
+    """parse_detail_page must NOT extract titles from HTTP error pages.
+
+    Bug: when Douban returns 429, the HTML <title> is "429 Too Many Requests".
+    parse_detail_page extracted it as the movie title → data corruption.
+    """
+
+    def test_rejects_429_title(self):
+        from app.services.metadata import parse_detail_page
+        html = "<html><head><title>429 Too Many Requests</title></head><body></body></html>"
+        info = parse_detail_page(html)
+        assert info.get("title") != "429 Too Many Requests"
+        assert not info.get("title", "").startswith("429")
+
+    def test_rejects_503_title(self):
+        from app.services.metadata import parse_detail_page
+        html = "<html><head><title>503 Service Unavailable</title></head><body></body></html>"
+        info = parse_detail_page(html)
+        assert not info.get("title", "").startswith("503")
+
+    def test_rejects_502_title(self):
+        from app.services.metadata import parse_detail_page
+        html = "<html><head><title>502 Bad Gateway</title></head><body></body></html>"
+        info = parse_detail_page(html)
+        assert not info.get("title", "").startswith("502")
+
+    def test_accepts_normal_chinese_title(self):
+        from app.services.metadata import parse_detail_page
+        html = '<html><head><title>肖申克的救赎 (豆瓣)</title></head><body></body></html>'
+        info = parse_detail_page(html)
+        assert info.get("title") == "肖申克的救赎"
+
+    def test_accepts_title_starting_with_number(self):
+        """Titles like '1917' or '2001太空漫游' must NOT be rejected.
+        Only HTTP error pattern (3 digits + space + word) should be rejected.
+        """
+        from app.services.metadata import parse_detail_page
+        html = '<html><head><title>2001太空漫游 (豆瓣)</title></head><body></body></html>'
+        info = parse_detail_page(html)
+        assert info.get("title") == "2001太空漫游"
+
+    def test_accepts_title_1917(self):
+        """'1917' is a valid movie title — just digits, no space+word."""
+        from app.services.metadata import parse_detail_page
+        html = '<html><head><title>1917 (豆瓣)</title></head><body></body></html>'
+        info = parse_detail_page(html)
+        assert info.get("title") == "1917"

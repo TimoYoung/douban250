@@ -288,6 +288,142 @@ class TestDispatchThread:
             with pytest.raises(AntiCrawlBlock, match="反爬封锁"):
                 fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
 
+    def test_http_429_response_raises_anticrawl(self):
+        """HTTP 429 status must raise AntiCrawlBlock, NOT return the
+        429 error page HTML. Otherwise parse_detail_page extracts
+        '429 Too Many Requests' as the movie title — data corruption.
+        """
+        fetcher = get_douban_fetcher()
+
+        error_429_html = "<html><head><title>429 Too Many Requests</title></head><body>Too many requests</body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            # Simulate: page.goto returns a response with status 429
+            mock_response = MagicMock()
+            mock_response.status = 429
+            mock_page.goto.return_value = mock_response
+            mock_page.content.return_value = error_429_html
+            mock_page.url = "https://movie.douban.com/subject/36808876/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            with pytest.raises(AntiCrawlBlock, match="HTTP 429"):
+                fetcher.fetch_page("https://movie.douban.com/subject/36808876/")
+
+    def test_429_in_page_content_raises_anticrawl(self):
+        """When response status is None/200 but page body contains
+        '429 Too Many Requests' (e.g., after redirect), the fetcher
+        must still detect it via content check.
+        """
+        fetcher = get_douban_fetcher()
+
+        error_429_html = "<html><head><title>429 Too Many Requests</title></head><body>Too many requests</body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            # Status is 200 but content is 429 error page
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_page.goto.return_value = mock_response
+            mock_page.content.return_value = error_429_html
+            mock_page.url = "https://movie.douban.com/subject/36808876/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            with pytest.raises(AntiCrawlBlock, match="429"):
+                fetcher.fetch_page("https://movie.douban.com/subject/36808876/")
+
+    def test_503_in_page_content_raises_anticrawl(self):
+        """Content-based fallback must detect ALL HTTP error statuses,
+        not just 429. When a 503 error page arrives via redirect (status=200
+        but body is 503 error), the content check must catch it.
+        """
+        fetcher = get_douban_fetcher()
+
+        error_html = "<html><head><title>503 Service Unavailable</title></head><body></body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            mock_response = MagicMock()
+            mock_response.status = 200  # status OK (redirected)
+            mock_page.goto.return_value = mock_response
+            mock_page.content.return_value = error_html
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            with pytest.raises(AntiCrawlBlock, match="503"):
+                fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+
+    def test_http_503_response_raises_anticrawl(self):
+        """HTTP 502/503/504 error pages should also raise AntiCrawlBlock.
+        Otherwise parse_detail_page returns empty info, but metadata.py
+        still sets last_meta_fetch → movie skipped for 30 days with
+        no metadata obtained.
+        """
+        fetcher = get_douban_fetcher()
+
+        error_html = "<html><head><title>503 Service Unavailable</title></head><body></body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            mock_response = MagicMock()
+            mock_response.status = 503
+            mock_page.goto.return_value = mock_response
+            mock_page.content.return_value = error_html
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            with pytest.raises(AntiCrawlBlock, match="HTTP 503"):
+                fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+
+    def test_http_200_does_not_raise(self):
+        """Normal 200 response must NOT raise AntiCrawlBlock."""
+        fetcher = get_douban_fetcher()
+
+        normal_html = "<html><head><title>肖申克的救赎 (豆瓣)</title></head><body>内容</body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_page.goto.return_value = mock_response
+            mock_page.content.return_value = normal_html
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_init.return_value = (mock_pw, mock_browser, mock_context, mock_page)
+
+            fetcher._ensure_worker()
+
+            # Should NOT raise — 200 is a normal response
+            html = fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+            assert "肖申克的救赎" in html
+
     def test_close_stops_worker_thread(self):
         """close() should stop the dispatch thread cleanly."""
         fetcher = get_douban_fetcher()
@@ -407,6 +543,27 @@ class TestCheckCookieValid:
         assert result["valid"] is False
         assert "验证码" in result["message"]
         assert "验证失败" not in result["message"]
+
+    def test_detects_rate_limit_from_fetcher(self):
+        """When fetcher raises AntiCrawlBlock for HTTP 429/503,
+        check_cookie_valid should return a rate-limit-specific message,
+        NOT a cookie-invalid message. 429 means the IP is throttled,
+        not that the cookie is bad.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "HTTP 429 错误: https://movie.douban.com/mine?status=collect"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "限流" in result["message"] or "频繁" in result["message"]
+        # Should NOT say cookie is invalid — the cookie is fine, just rate-limited
+        assert "无效" not in result["message"]
+        assert "过期" not in result["message"]
 
     def test_unknown_anticrawl_returns_generic_message(self):
         """When fetcher raises AntiCrawlBlock with an unknown message,

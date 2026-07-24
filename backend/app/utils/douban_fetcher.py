@@ -10,6 +10,7 @@ PoW 要求浏览器端执行 JavaScript 计算哈希碰撞，
 通过 future 获取结果。保证单 Chromium 实例、无跨线程竞争。
 """
 import queue
+import re
 import threading
 import logging
 import time
@@ -266,11 +267,16 @@ class DoubanFetcher:
                 context.add_cookies(cookies)
 
         try:
-            page.goto(
+            response = page.goto(
                 url,
                 wait_until="domcontentloaded",
                 timeout=settings.playwright_timeout_ms,
             )
+
+            # HTTP 级别反爬/错误检测（429 限流、5xx 服务端错误等）
+            if response and response.status in (429, 502, 503, 504):
+                raise AntiCrawlBlock(
+                    f"HTTP {response.status} 错误: {url}")
 
             # 等待 PoW 挑战完成（如果有）
             page.wait_for_timeout(3000)
@@ -289,6 +295,11 @@ class DoubanFetcher:
             # 使用与 http_client.py 一致的模式：name="tok" + name="cha" + sha512
             if 'name="tok"' in head and 'name="cha"' in head and "sha512" in head:
                 raise AntiCrawlBlock(f"PoW 挑战页未解出: {url}")
+            # 兜底：HTTP 错误页（当 status 未被捕获时，如页面重定向后的错误页）
+            m = re.search(r'<title>\s*(429|502|503|504)\s+\w', head)
+            if m:
+                raise AntiCrawlBlock(
+                    f"HTTP {m.group(1)} 错误页面: {url}")
 
             # 请求间隔
             time.sleep(settings.douban_page_delay)

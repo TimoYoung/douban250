@@ -73,6 +73,10 @@ def fetch_imdb_top250() -> list[dict]:
                        "Chrome/131.0.0.0 Safari/537.36",
             locale="en-US",
         )
+        # 移除自动化标记，防止 AWS WAF 触发 CAPTCHA 挑战
+        context.add_init_script(
+            'Object.defineProperty(navigator, "webdriver", { get: () => undefined })'
+        )
         page = context.new_page()
 
         logger.info("Fetching IMDb Top 250...")

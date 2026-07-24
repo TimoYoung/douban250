@@ -424,6 +424,139 @@ class TestDispatchThread:
             html = fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
             assert "肖申克的救赎" in html
 
+    def test_waits_for_load_state_before_reading_content(self):
+        """Bug fix: page.content() was called while the page was still
+        navigating (e.g., after a JS redirect), causing:
+        'Page.content: Unable to retrieve content because the page is
+        navigating and changing the content.'
+
+        The fix calls page.wait_for_load_state("load") after the initial
+        goto + PoW wait, ensuring the load event has fired before reading
+        the HTML. Without wait_for_load_state, content() throws mid-nav.
+        """
+        fetcher = get_douban_fetcher()
+        normal_html = "<html><head><title>浪客剑心 (豆瓣)</title></head><body>内容</body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_page.goto.return_value = mock_response
+            mock_page.url = "https://movie.douban.com/subject/1421721/"
+
+            # Simulate the real bug: content() raises while navigating
+            def content_side_effect():
+                if not mock_page.wait_for_load_state.called:
+                    raise Exception(
+                        "Page.content: Unable to retrieve content "
+                        "because the page is navigating and changing "
+                        "the content."
+                    )
+                return normal_html
+
+            mock_page.content.side_effect = content_side_effect
+
+            mock_init.return_value = (
+                mock_pw, mock_browser, mock_context, mock_page
+            )
+            fetcher._ensure_worker()
+
+            # Should NOT raise — wait_for_load_state("load") must be
+            # called before content()
+            result = fetcher.fetch_page(
+                "https://movie.douban.com/subject/1421721/"
+            )
+
+            assert result == normal_html
+            mock_page.wait_for_load_state.assert_called_once()
+            # Verify state parameter and timeout
+            call_args = mock_page.wait_for_load_state.call_args
+            assert call_args[0][0] == "load"
+            assert "timeout" in call_args[1]
+            # Verify ordering: wait_for_load_state called BEFORE content
+            # by checking the call counts after success
+            assert mock_page.content.call_count >= 1
+
+    def test_wait_for_load_state_timeout_raises_page_fetch_timeout(self):
+        """If wait_for_load_state('load') itself times out (e.g., page
+        stuck in a redirect loop), the error should be wrapped as
+        PageFetchTimeout, not leak the raw Playwright exception.
+        """
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        fetcher = get_douban_fetcher()
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_page.goto.return_value = mock_response
+            mock_page.url = "https://movie.douban.com/subject/1421721/"
+
+            # wait_for_load_state times out (page stuck navigating)
+            mock_page.wait_for_load_state.side_effect = PlaywrightTimeout(
+                "Timeout 30000ms exceeded."
+            )
+
+            mock_init.return_value = (
+                mock_pw, mock_browser, mock_context, mock_page
+            )
+            fetcher._ensure_worker()
+
+            with pytest.raises(PageFetchTimeout):
+                fetcher.fetch_page(
+                    "https://movie.douban.com/subject/1421721/"
+                )
+
+    def test_wait_for_load_state_uses_configured_timeout(self):
+        """wait_for_load_state must use the same timeout as page.goto
+        (settings.playwright_timeout_ms), not Playwright's default 30s.
+        Otherwise the total fetch time could exceed the future's timeout,
+        producing a generic 'Dispatch 线程超时' error instead of the more
+        specific 'Playwright 超时' error.
+        """
+        from app.config import settings
+
+        fetcher = get_douban_fetcher()
+        normal_html = "<html><head><title>Test</title></head><body>内容</body></html>"
+
+        with patch.object(DoubanFetcher, '_init_browser') as mock_init, \
+             patch.object(DoubanFetcher, '_shutdown'):
+            mock_pw = MagicMock()
+            mock_browser = MagicMock()
+            mock_context = MagicMock()
+            mock_page = MagicMock()
+
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_page.goto.return_value = mock_response
+            mock_page.url = "https://movie.douban.com/subject/1292052/"
+            mock_page.content.return_value = normal_html
+
+            mock_init.return_value = (
+                mock_pw, mock_browser, mock_context, mock_page
+            )
+            fetcher._ensure_worker()
+
+            fetcher.fetch_page("https://movie.douban.com/subject/1292052/")
+
+            # Verify wait_for_load_state was called with explicit timeout
+            mock_page.wait_for_load_state.assert_called_once()
+            call_args = mock_page.wait_for_load_state.call_args
+            assert call_args[0][0] == "load"
+            # Timeout should match settings.playwright_timeout_ms
+            assert call_args[1].get("timeout") == settings.playwright_timeout_ms
+
     def test_close_stops_worker_thread(self):
         """close() should stop the dispatch thread cleanly."""
         fetcher = get_douban_fetcher()

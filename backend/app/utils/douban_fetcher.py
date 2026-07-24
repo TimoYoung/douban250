@@ -281,6 +281,15 @@ class DoubanFetcher:
             # 等待 PoW 挑战完成（如果有）
             page.wait_for_timeout(3000)
 
+            # 等待页面完全加载（load 事件完成），防止在导航中途读取 content
+            # 修复 bug: "Page.content: Unable to retrieve content because
+            # the page is navigating and changing the content."
+            # 使用与 page.goto 相同的超时配置，保持一致性
+            page.wait_for_load_state(
+                "load",
+                timeout=settings.playwright_timeout_ms
+            )
+
             html = page.content()
 
             # 反爬/无效页面检测（仅检查页面头部，避免影评等正文内容误触发）

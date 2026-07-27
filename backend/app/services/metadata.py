@@ -107,8 +107,18 @@ def check_cookie_valid(cookie: str = "") -> dict:
             "https://movie.douban.com/mine?status=collect", cookie)
 
         head = html[:2000]
-        # 仅检查登录页（_handle_fetch 不检测登录重定向，这是唯一需要在此检查的条件）
-        if "登录" in head and "注册" in head:
+        # 检查登录页或登录跳转页
+        # 豆瓣登录相关页面可能包含以下特征之一：
+        # - "登录" 和 "注册" 同时出现（标准登录页）
+        # - "登录跳转" （登录重定向页）
+        # - title 中包含 "登录"（各种登录页面）
+        import re as _re
+        title_match = _re.search(r'<title[^>]*>([^<]+)</title>', head)
+        page_title = title_match.group(1) if title_match else ""
+
+        if ("登录" in head and "注册" in head) or \
+           "登录跳转" in head or \
+           "登录" in page_title:
             return {"valid": False, "message": "Cookie 已过期，请在设置页面更新"}
         return {"valid": True, "message": "Cookie 有效"}
     except AntiCrawlBlock as e:

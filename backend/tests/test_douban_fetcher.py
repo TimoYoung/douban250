@@ -660,6 +660,40 @@ class TestCheckCookieValid:
         assert result["valid"] is False
         assert "过期" in result["message"]
 
+    def test_detects_login_redirect_page(self):
+        """Login redirect page (title contains '登录跳转') means cookie expired.
+
+        This catches the case where Douban returns a '登录跳转页' instead of
+        a standard login page. The page may not contain both '登录' and '注册'.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.return_value = (
+            "<html><head><title>豆瓣 - 登录跳转页</title></head>"
+            "<body><div>需要登录</div></body></html>"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "过期" in result["message"]
+
+    def test_detects_login_page_by_title_only(self):
+        """Login page detected when title contains '登录', even without '注册'."""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.return_value = (
+            "<html><head><title>请登录 - 豆瓣</title></head>"
+            "<body>请登录后继续</body></html>"
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "过期" in result["message"]
+
     def test_detects_captcha_from_fetcher(self):
         """When fetcher raises AntiCrawlBlock for CAPTCHA,
         check_cookie_valid should return a CAPTCHA-specific message.

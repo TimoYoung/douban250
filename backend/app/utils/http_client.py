@@ -9,20 +9,36 @@ logger = logging.getLogger(__name__)
 
 
 def _get_cookie() -> str:
-    """Read douban_cookie from DB setting, fall back to env config."""
+    """Read douban_cookie from the admin user.
+
+    The admin's douban_cookie is the single source of truth for system-level
+    crawlers (Top 250, metadata, IMDb). Each user's cookie is used only for
+    their own watched-list scraping.
+
+    Returns empty string if no admin cookie is configured — callers should
+    handle this (crawlers will fail with login redirects).
+    """
     try:
         from app.database import SessionLocal
-        from app.models import Setting
+        from app.models import User
         db = SessionLocal()
         try:
-            row = db.query(Setting).filter(Setting.key == "douban_cookie").first()
-            if row and row.value:
-                return row.value
+            admin = db.query(User).filter(
+                User.role == "admin",
+                User.douban_cookie.isnot(None),
+                User.douban_cookie != "",
+            ).first()
+            if admin and admin.douban_cookie:
+                return admin.douban_cookie
         finally:
             db.close()
     except Exception:
         pass
-    return settings.douban_cookie
+    logger.warning(
+        "未配置豆瓣 Cookie：admin 用户未设置 douban_cookie。"
+        "请在 UI「我的豆瓣」中配置，否则爬取将因登录墙失败。"
+    )
+    return ""
 
 
 def get_headers(cookie: str = "") -> dict:

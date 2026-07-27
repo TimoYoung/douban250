@@ -38,8 +38,13 @@ class AntiCrawlBlock(Exception):
     """豆瓣反爬封锁（PoW/CAPTCHA/异常请求检测）。
 
     metadata backfill 应使用长冷却并递增 meta_fetch_failures。
+
+    可选属性 page_title：在网格结构校验失败时由 _handle_fetch 填入被拦截页面的标题，
+    方便上层判断是登录墙、地区限制还是其它问题，而无需解析字符串。
     """
-    pass
+    def __init__(self, message: str = "", page_title: str = ""):
+        super().__init__(message)
+        self.page_title = page_title
 
 
 def fetch_with_retry(
@@ -163,7 +168,7 @@ class DoubanFetcher:
         Playwright 自动执行 PoW 页面的 JavaScript，
         浏览器完成 SHA-512 哈希碰撞后自动跳转回目标页。
 
-        使用默认 Cookie（DOUBAN_COOKIE 环境变量或 http_client 配置）。
+        使用 admin 用户的 Cookie（通过 http_client._get_cookie() 获取）。
 
         Raises:
             AntiCrawlBlock: 检测到反爬封锁
@@ -295,26 +300,21 @@ class DoubanFetcher:
     def _handle_fetch(self, page, context, url, cookie):
         """在 dispatch 线程中执行单次页面获取。
 
-        每次调用前清除旧 cookie 并注入当前 cookie，
-        确保 fetch_page_with_cookie 的 cookie 始终生效。
+        每次调用前注入当前 cookie（通过 set_extra_http_headers 直接设置请求头）。
+
+        注意：context.add_cookies() 在 Playwright 1.60+ 环境下存在 bug，
+        即使 context.cookies() 显示 cookie 已存储，实际 HTTP 请求也不会发送。
+        因此改用 page.set_extra_http_headers() 直接设置 Cookie 请求头。
         """
-        # 注入 cookie（每次 fetch 前刷新，不使用浏览器缓存的旧 cookie）
-        context.clear_cookies()
+        # 注入 cookie（通过 HTTP header 直接注入，绕过 context.add_cookies 的 bug）
         resolved_cookie = cookie if cookie else self._get_default_cookie()
+        # 清除浏览器 cookie jar（防止之前 Set-Cookie 响应累积干扰）
+        context.clear_cookies()
         if resolved_cookie:
-            cookies = []
-            for part in resolved_cookie.split(";"):
-                part = part.strip()
-                if "=" in part:
-                    name, value = part.split("=", 1)
-                    cookies.append({
-                        "name": name.strip(),
-                        "value": value.strip(),
-                        "domain": ".douban.com",
-                        "path": "/",
-                    })
-            if cookies:
-                context.add_cookies(cookies)
+            page.set_extra_http_headers({"Cookie": resolved_cookie})
+        else:
+            # 无 cookie 时清除之前设置的 Cookie header
+            page.set_extra_http_headers({})
 
         try:
             response = page.goto(
@@ -373,7 +373,8 @@ class DoubanFetcher:
                         f"HTML 前 500 字符: {html[:500]}"
                     )
                     raise AntiCrawlBlock(
-                        f"Top 250 页面结构异常（可能是登录墙或地区限制）: {url}"
+                        f"Top 250 页面结构异常（可能是登录墙或地区限制）: {url}",
+                        page_title=page_title,
                     )
 
             # 请求间隔

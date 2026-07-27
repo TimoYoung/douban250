@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/douban250.db"
     posters_dir: Path = Path("./posters")
     douban_user_id: str = ""
-    douban_cookie: str = ""
     douban_request_delay: float = 2.0
     douban_page_delay: float = 3.0       # Playwright 详情页请求间隔（秒）
     playwright_timeout_ms: int = 45000   # Playwright 页面加载超时（毫秒）

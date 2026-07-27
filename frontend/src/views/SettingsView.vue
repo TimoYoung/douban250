@@ -1075,7 +1075,7 @@ async function onChangePassword() {
 
 async function onCheckMyCookie() {
   try {
-    const { data } = await fetchCookieCheck()
+    const { data } = await fetchCookieCheck(myDoubanCookie.value)
     settingsStore.cookieCheck = data
   } catch (e) {
     settingsStore.cookieCheck = { valid: false, message: '检查失败' }

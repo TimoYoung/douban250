@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import CrawlLog
 from app.models.user import User
-from app.schemas.crawl import CrawlLogInfo, CrawlTriggerResponse, RetryStatusResponse, RetryCancelResponse
+from app.schemas.crawl import CrawlLogInfo, CrawlTriggerResponse, RetryStatusResponse, RetryCancelResponse, CookieCheckRequest
 from app.services.crawler import crawl_progress
 from app.services.metadata import meta_progress, get_meta_progress
 from app.dependencies import require_user, require_admin
@@ -151,12 +151,19 @@ def get_metadata_status(db: Session = Depends(get_db)):
     return CrawlLogInfo.model_validate(latest)
 
 
-@router.get("/cookie-check")
-def check_cookie(user: User = Depends(require_user)):
+@router.post("/cookie-check")
+def check_cookie(body: CookieCheckRequest = None, user: User = Depends(require_user)):
+    """检查 Cookie 有效性。
+
+    如果 body 中带 cookie 字段，检查该值（用于 UI 文本框即时验证）。
+    否则检查当前用户已保存的 Cookie。
+    使用 POST 避免 cookie 出现在 URL/日志中。
+    """
     from app.services.metadata import check_cookie_valid
-    if not user.douban_cookie:
+    test_cookie = (body.cookie if body and body.cookie else None) or user.douban_cookie
+    if not test_cookie:
         return {"valid": False, "message": "未配置 Cookie"}
-    return check_cookie_valid(cookie=user.douban_cookie)
+    return check_cookie_valid(cookie=test_cookie)
 
 
 def _run_metadata(force: bool = False, mode: str = "incremental"):

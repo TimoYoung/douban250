@@ -176,8 +176,8 @@ export function fetchMetadataStatus() {
   return api.get('/crawl/metadata/status')
 }
 
-export function fetchCookieCheck() {
-  return api.get('/crawl/cookie-check')
+export function fetchCookieCheck(cookie) {
+  return api.post('/crawl/cookie-check', { cookie: cookie || null })
 }
 
 // ── IMDb ──────────────────────────────────────────────────────────────

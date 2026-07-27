@@ -1,7 +1,18 @@
 from datetime import datetime
 from typing import Optional
 
+from pydantic import BaseModel
+
 from app.schemas import BeijingBaseModel
+
+
+class CookieCheckRequest(BaseModel):
+    """Cookie 有效性检查请求体。
+
+    使用 BaseModel 而非 BeijingBaseModel —— 本 schema 不含时间字段，
+    不需要 UTC+8 时区序列化，避免误导维护者。
+    """
+    cookie: str | None = None
 
 
 class CrawlLogInfo(BeijingBaseModel):

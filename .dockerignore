@@ -1,11 +1,23 @@
+# Build context exclusions — keep docker build context small
 backend/data
 backend/posters
+backend/tests
 backend/scripts
 backend/__pycache__
 backend/.venv
 **/__pycache__
 **/*.pyc
+**/*.pyo
+**/*.tar.gz
 .git
+.gitignore
 .env
+.env.*
 *.log
+*.md
 .DS_Store
+.vscode
+.idea
+frontend/node_modules
+frontend/.env*
+docker-compose.yml

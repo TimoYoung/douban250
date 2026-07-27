@@ -93,7 +93,8 @@ def should_retry_now(movie) -> bool:
 def check_cookie_valid(cookie: str = "") -> dict:
     """Check if the Douban cookie is still valid. Returns {valid, message}.
 
-    使用 Playwright 获取页面（dispatch-thread 架构），能自动处理 PoW 挑战。
+    使用 Playwright 获取 Top 250 页面（与爬取目标一致），能自动处理 PoW 挑战。
+    检查 Top 250 页面（而非 /mine）确保 Cookie 对实际爬取目标有效。
     每次调用都会清除浏览器旧 cookie 并注入当前 cookie，确保 cookie 始终生效。
     """
     if not cookie:
@@ -103,8 +104,9 @@ def check_cookie_valid(cookie: str = "") -> dict:
 
     try:
         fetcher = get_douban_fetcher()
+        # 使用 Top 250 URL（与实际爬取目标一致），确保 Cookie 对该页面有效
         html = fetcher.fetch_page_with_cookie(
-            "https://movie.douban.com/mine?status=collect", cookie)
+            "https://movie.douban.com/top250?start=0&filter=", cookie)
 
         head = html[:2000]
         # 检查登录页或登录跳转页
@@ -112,8 +114,7 @@ def check_cookie_valid(cookie: str = "") -> dict:
         # - "登录" 和 "注册" 同时出现（标准登录页）
         # - "登录跳转" （登录重定向页）
         # - title 中包含 "登录"（各种登录页面）
-        import re as _re
-        title_match = _re.search(r'<title[^>]*>([^<]+)</title>', head)
+        title_match = re.search(r'<title[^>]*>([^<]+)</title>', head)
         page_title = title_match.group(1) if title_match else ""
 
         if ("登录" in head and "注册" in head) or \
@@ -127,6 +128,13 @@ def check_cookie_valid(cookie: str = "") -> dict:
         msg = str(e)
         if "没有访问权限" in msg:
             return {"valid": False, "message": "Cookie 无效，无法访问该页面"}
+        if "页面结构异常" in msg:
+            # Top 250 页面缺少 grid_view 元素——几乎总是登录墙或地区限制
+            # _handle_fetch 会把页面标题结构化地附在异常对象上，不依赖字符串解析
+            page_title = getattr(e, "page_title", "") or ""
+            if "登录" in page_title:
+                return {"valid": False, "message": "Cookie 已过期，豆瓣要求登录才能访问榜单"}
+            return {"valid": False, "message": "Cookie 已过期或无法访问 Top 250 页面"}
         if "反爬封锁" in msg:
             return {"valid": False, "message": "Cookie 触发反爬机制"}
         if "PoW" in msg:

@@ -152,6 +152,9 @@ def _run_migrations(db):
             "douban_cookie, is_active, created_at, updated_at) "
             "VALUES ('admin', :hashed, 'admin', :uid, :cookie, 1, :ts, :ts)"),
             {"hashed": hashed, "uid": migrated_uid, "cookie": migrated_cookie, "ts": ts})
+        # 迁移完成：清理旧的 Setting 行，admin User 是唯一数据源
+        if migrated_cookie:
+            db.execute(text("DELETE FROM settings WHERE key='douban_cookie'"))
         db.commit()
 
 

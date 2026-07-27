@@ -86,12 +86,12 @@ class TestDispatchThread:
             fetcher.fetch_page("https://movie.douban.com/subject/1/")
             # Fetch with custom cookie
             fetcher.fetch_page_with_cookie(
-                "https://movie.douban.com/mine?status=collect",
+                "https://movie.douban.com/top250?start=0&filter=",
                 "bid=abc123; ll=108288",
             )
             # Fetch again with different cookie
             fetcher.fetch_page_with_cookie(
-                "https://movie.douban.com/mine?status=collect",
+                "https://movie.douban.com/top250?start=0&filter=",
                 "bid=new_cookie; ll=999",
             )
 
@@ -595,7 +595,7 @@ class TestCheckCookieValid:
         """
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
-            "没有访问权限: https://movie.douban.com/mine?status=collect"
+            "没有访问权限: https://movie.douban.com/top250?start=0&filter="
         )
 
         with patch("app.services.metadata.get_douban_fetcher",
@@ -615,7 +615,7 @@ class TestCheckCookieValid:
         """
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
-            "豆瓣反爬封锁: https://movie.douban.com/mine?status=collect"
+            "豆瓣反爬封锁: https://movie.douban.com/top250?start=0&filter="
         )
 
         with patch("app.services.metadata.get_douban_fetcher",
@@ -632,7 +632,7 @@ class TestCheckCookieValid:
         """
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
-            "PoW 挑战页未解出: https://movie.douban.com/mine?status=collect"
+            "PoW 挑战页未解出: https://movie.douban.com/top250?start=0&filter="
         )
 
         with patch("app.services.metadata.get_douban_fetcher",
@@ -694,13 +694,51 @@ class TestCheckCookieValid:
         assert result["valid"] is False
         assert "过期" in result["message"]
 
+    def test_detects_top250_structure_anomaly(self):
+        """When fetcher raises AntiCrawlBlock for '页面结构异常' (grid_view check),
+        this means Top 250 returned a login wall or non-Top250 content.
+        check_cookie_valid should map this to 'Cookie 已过期'.
+        """
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "Top 250 页面结构异常（可能是登录墙或地区限制）: "
+            "https://movie.douban.com/top250?start=0&filter="
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "过期" in result["message"]
+
+    def test_detects_top250_structure_anomaly_with_login_title(self):
+        """When '页面结构异常' exception carries a login page title attribute,
+        check_cookie_valid should provide a more specific message.
+        """
+        mock_fetcher = MagicMock()
+        # page_title 作为结构化属性传递，不依赖字符串解析
+        mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
+            "Top 250 页面结构异常（可能是登录墙或地区限制）: "
+            "https://movie.douban.com/top250?start=0&filter=",
+            page_title="豆瓣 - 登录跳转页",
+        )
+
+        with patch("app.services.metadata.get_douban_fetcher",
+                    return_value=mock_fetcher):
+            result = check_cookie_valid("bid=test; ll=108288")
+
+        assert result["valid"] is False
+        assert "过期" in result["message"]
+        assert "登录" in result["message"]
+
     def test_detects_captcha_from_fetcher(self):
         """When fetcher raises AntiCrawlBlock for CAPTCHA,
         check_cookie_valid should return a CAPTCHA-specific message.
         """
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
-            "CAPTCHA page: https://movie.douban.com/mine?status=collect"
+            "CAPTCHA page: https://movie.douban.com/top250?start=0&filter="
         )
 
         with patch("app.services.metadata.get_douban_fetcher",
@@ -719,7 +757,7 @@ class TestCheckCookieValid:
         """
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
-            "HTTP 429 错误: https://movie.douban.com/mine?status=collect"
+            "HTTP 429 错误: https://movie.douban.com/top250?start=0&filter="
         )
 
         with patch("app.services.metadata.get_douban_fetcher",
@@ -739,7 +777,7 @@ class TestCheckCookieValid:
         """
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.side_effect = AntiCrawlBlock(
-            "IP 被封禁: https://movie.douban.com/mine?status=collect"
+            "IP 被封禁: https://movie.douban.com/top250?start=0&filter="
         )
 
         with patch("app.services.metadata.get_douban_fetcher",
@@ -752,11 +790,11 @@ class TestCheckCookieValid:
         assert "movie.douban.com" not in result["message"]
 
     def test_valid_cookie_returns_true(self):
-        """A page with user's collection should return valid=True."""
+        """Top 250 page with grid_view structure means cookie is valid."""
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.return_value = (
-            "<html><head><title>我的收藏</title></head>"
-            "<body>我的电影列表 ...</body></html>"
+            "<html><head><title>豆瓣电影 Top 250</title></head>"
+            '<body><ol class="grid_view"><li>肖申克的救赎</li></ol></body></html>'
         )
 
         with patch("app.services.metadata.get_douban_fetcher",
@@ -785,7 +823,7 @@ class TestCheckCookieValid:
         """
         mock_fetcher = MagicMock()
         mock_fetcher.fetch_page_with_cookie.side_effect = PageFetchTimeout(
-            "Playwright 获取失败: https://movie.douban.com/mine?status=collect"
+            "Playwright 获取失败: https://movie.douban.com/top250?start=0&filter="
         )
 
         with patch("app.services.metadata.get_douban_fetcher",

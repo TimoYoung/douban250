@@ -63,8 +63,9 @@ Vue 3 Composition API + Pinia + Vue Router
 |------|------|--------|
 | `DATABASE_URL` | 数据库连接 | `sqlite:///./data/douban250.db` |
 | `DOUBAN_USER_ID` | 豆瓣用户 ID（看过列表同步） | — |
-| `DOUBAN_COOKIE` | 豆瓣 Cookie（反爬） | — |
-| `DOUBAN_REQUEST_DELAY` | 请求间隔秒数 | `2.0` |
+| `DOUBAN_REQUEST_DELAY` | 爬取请求间隔秒数 | `2.0` |
+
+豆瓣 Cookie 通过 UI "我的豆瓣" 配置，由 admin 用户的 `douban_cookie` 字段统一存储。系统级爬取（Top 250、元数据、IMDb）和 admin 的"看过"列表共用同一份 Cookie。
 
 ## Conventions
 

@@ -1,6 +1,7 @@
 import logging
 import re
 import threading
+from functools import partial
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -10,7 +11,8 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import Movie, Version, VersionEntry, CrawlLog
 from app.utils import now
-from app.utils.http_client import fetch_page, fetch_binary
+from app.utils.http_client import fetch_binary
+from app.utils.douban_fetcher import get_douban_fetcher, fetch_with_retry
 from app.utils.html_parser import parse_top250_page
 
 logger = logging.getLogger(__name__)
@@ -70,16 +72,17 @@ def crawl_top250() -> dict:
     _reset_progress("top250")
 
     try:
-        # Phase 1: Fetch pages
+        # Phase 1: Fetch pages (via Playwright to bypass WAF/PoW)
         crawl_progress.update({"phase": "fetching_pages", "page_total": 10})
         all_movies = []
+        fetcher = get_douban_fetcher()
         for i, start in enumerate(range(0, 250, 25)):
             crawl_progress["page_current"] = i + 1
             crawl_progress["message"] = f"正在爬取第 {i + 1}/10 页 (start={start})"
             logger.info(f"Fetching Top 250 page: start={start} ({i + 1}/10)")
 
             url = f"https://movie.douban.com/top250?start={start}&filter="
-            html = fetch_page(url)
+            html = fetch_with_retry(partial(fetcher.fetch_page, url), context="top250_list")
             page_movies = parse_top250_page(html)
             all_movies.extend(page_movies)
             crawl_progress["movies_found"] = len(all_movies)
@@ -319,7 +322,8 @@ def _fetch_and_update_detail(db: Session, movie: Movie):
     from app.services.metadata import parse_detail_page
 
     url = f"https://movie.douban.com/subject/{movie.douban_id}/"
-    html = fetch_page(url)
+    fetcher = get_douban_fetcher()
+    html = fetch_with_retry(partial(fetcher.fetch_page, url), context=f"detail:{movie.douban_id}")
     info = parse_detail_page(html)
 
     for field in ["director", "genre", "country", "year", "tagline", "summary", "douban_url"]:

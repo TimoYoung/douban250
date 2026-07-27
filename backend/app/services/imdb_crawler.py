@@ -14,6 +14,8 @@ import time
 import random
 import logging
 import threading
+from functools import partial
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy.orm import Session
@@ -22,6 +24,7 @@ from app.config import settings
 from app.models import Movie, Version, VersionEntry, PendingMatch
 from app.utils import now
 from app.utils.http_client import _get_cookie, get_headers
+from app.utils.douban_fetcher import get_douban_fetcher, fetch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -260,36 +263,26 @@ def _douban_suggest(client: httpx.Client, query: str) -> list[dict]:
     return []
 
 
-def _douban_search_by_imdb_id(
-    client: httpx.Client, imdb_id: str
-) -> str | None:
+def _douban_search_by_imdb_id(imdb_id: str) -> str | None:
     """通过豆瓣搜索页用 IMDb ID 直接查询 douban_id。
 
-    使用 search.douban.com/movie/subject_search?search_text={imdb_id}，
+    使用 Playwright 浏览器访问 search.douban.com/movie/subject_search，
     从搜索结果的 subject 链接中提取第一个 douban_id。
+    使用真实浏览器绕过 WAF/PoW 封锁。
+    包含重试：瞬态反爬封锁/超时自动重试最多 3 次。
     """
     if not imdb_id:
         return None
     try:
-        resp = client.get(
-            'https://search.douban.com/movie/subject_search',
-            params={'search_text': imdb_id},
-        )
-        if resp.status_code != 200:
-            logger.warning(f"豆瓣搜索页返回 {resp.status_code}: {imdb_id}")
-            return None
-        text = resp.text
-        # 检测反爬
-        if '检测到有异常请求' in text or '验证码' in text:
-            logger.warning(f"豆瓣搜索页被拦截: {imdb_id}")
-            return None
-        if 'name="tok"' in text and 'sha512' in text:
-            logger.warning(f"豆瓣搜索页 PoW 挑战: {imdb_id}")
-            return None
+        fetcher = get_douban_fetcher()
+        url = f'https://search.douban.com/movie/subject_search?search_text={quote(imdb_id)}'
+        text = fetch_with_retry(partial(fetcher.fetch_page, url), context="imdb_search")
         # 提取第一个 subject 链接中的 douban_id
         m = re.search(r'subject/(\d+)', text)
         if m:
             return m.group(1)
+    except RuntimeError as e:
+        logger.warning(f"豆瓣搜索页重试耗尽: {imdb_id} - {e}")
     except Exception as e:
         logger.warning(f"豆瓣搜索页请求失败: {imdb_id} - {e}")
     return None
@@ -490,8 +483,7 @@ def crawl_imdb_top250(db_factory) -> dict:
                     _update_progress(
                         message=f"IMDb ID 搜索豆瓣: {imdb_title} ({i+1}/{len(movies_data)})")
                     _douban_delay()
-                    douban_id = _douban_search_by_imdb_id(
-                        douban_client, imdb_id)
+                    douban_id = _douban_search_by_imdb_id(imdb_id)
                     _imdb_progress["douban_searched"] += 1
 
                     if douban_id:

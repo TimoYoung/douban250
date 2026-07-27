@@ -38,6 +38,22 @@ def get_headers(cookie: str = "") -> dict:
     return h
 
 
+def _check_waf_redirect(resp: httpx.Response, url: str) -> None:
+    """检查响应是否经过 sec.douban.com WAF 重定向。
+
+    Args:
+        resp: HTTP 响应对象
+        url: 原始请求 URL（用于错误消息）
+
+    Raises:
+        RuntimeError: 如果检测到 WAF 封锁
+    """
+    if any("sec.douban.com" in str(r.url) for r in resp.history):
+        raise RuntimeError(f"豆瓣 WAF 封锁 (sec.douban.com 重定向): {url}")
+    if "sec.douban.com" in str(resp.url):
+        raise RuntimeError(f"豆瓣 WAF 封锁 (sec.douban.com): {url}")
+
+
 def fetch_page(url: str, cookie: str = "") -> str:
     """Fetch a page with retry, exponential backoff and jitter. Optionally pass cookie for auth."""
     if not cookie:
@@ -49,6 +65,10 @@ def fetch_page(url: str, cookie: str = "") -> str:
         try:
             with httpx.Client(headers=headers, follow_redirects=True, timeout=30) as client:
                 resp = client.get(url)
+
+                # 检测 WAF 封锁
+                _check_waf_redirect(resp, url)
+
                 resp.raise_for_status()
 
                 text = resp.text
@@ -90,9 +110,15 @@ def fetch_binary(url: str) -> bytes:
         try:
             with httpx.Client(headers=headers, follow_redirects=True, timeout=30) as client:
                 resp = client.get(url)
+
+                # 检测 WAF 封锁
+                _check_waf_redirect(resp, url)
+
                 resp.raise_for_status()
                 time.sleep(settings.douban_request_delay)
                 return resp.content
+        except RuntimeError:
+            raise  # 反爬封锁直接抛出，不重试
         except Exception as e:
             last_error = e
             if attempt < settings.douban_http_max_retries - 1:

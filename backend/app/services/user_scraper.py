@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, date
+from functools import partial
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import WatchedMovie, CrawlLog
 from app.utils import now
-from app.utils.http_client import fetch_page
+from app.utils.douban_fetcher import get_douban_fetcher, fetch_with_retry
 from app.utils.html_parser import parse_watched_page
 from app.services.crawler import crawl_progress
 
@@ -57,6 +58,7 @@ def scrape_user_watched(user_id: str, full: bool = False, cookie: str = "") -> d
         page_num = 0
         total_count = 0
         stopped_early = False
+        fetcher = get_douban_fetcher()
 
         while True:
             page_num += 1
@@ -67,7 +69,7 @@ def scrape_user_watched(user_id: str, full: bool = False, cookie: str = "") -> d
             logger.info(f"Fetching watched page {page_num}: start={start}")
 
             url = f"https://movie.douban.com/people/{user_id}/collect?start={start}&sort=time&rating=&filter=all&mode=grid"
-            html = fetch_page(url, cookie=cookie)
+            html = fetch_with_retry(partial(fetcher.fetch_page_with_cookie, url, cookie=cookie), context="user_watched")
             page_movies, page_total = parse_watched_page(html)
 
             if page_total > 0:

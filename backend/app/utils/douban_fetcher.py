@@ -10,10 +10,12 @@ PoW 要求浏览器端执行 JavaScript 计算哈希碰撞，
 通过 future 获取结果。保证单 Chromium 实例、无跨线程竞争。
 """
 import queue
+import random
 import re
 import threading
 import logging
 import time
+from typing import Callable
 
 from playwright.sync_api import sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
@@ -38,6 +40,51 @@ class AntiCrawlBlock(Exception):
     metadata backfill 应使用长冷却并递增 meta_fetch_failures。
     """
     pass
+
+
+def fetch_with_retry(
+    fetch_fn: Callable[[], str],
+    max_retries: int = 3,
+    context: str = None,
+) -> str:
+    """通用 Playwright 页面获取重试包装。
+
+    接受任意无参 callable（通常 lambda 包装 fetcher.fetch_page 调用），
+    区分 AntiCrawlBlock（反爬封锁，长退避 30-60s）和 PageFetchTimeout
+    （超时，短退避 5-10s）。其他异常立即抛出，不重试。
+
+    Args:
+        fetch_fn: 无参 callable，执行页面获取操作。
+        max_retries: 最大重试次数，默认 3。
+        context: 可选的上下文标签，用于日志和错误消息中区分不同的爬取任务。
+
+    Raises:
+        RuntimeError: 所有重试均失败，message 包含最后一次错误。
+    """
+    last_error = None
+    tag = f"[{context}] " if context else ""
+    for attempt in range(max_retries):
+        try:
+            return fetch_fn()
+        except AntiCrawlBlock as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                delay = 30 + random.random() * 30
+                logger.warning(
+                    f"{tag}反爬封锁 (重试 {attempt+1}/{max_retries}): "
+                    f"{e}, 等待 {delay:.0f}s"
+                )
+                time.sleep(delay)
+        except PageFetchTimeout as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                delay = 5 + random.random() * 5
+                logger.warning(
+                    f"{tag}页面超时 (重试 {attempt+1}/{max_retries}): "
+                    f"{e}, 等待 {delay:.0f}s"
+                )
+                time.sleep(delay)
+    raise RuntimeError(f"{tag}Failed after {max_retries} retries: {last_error}")
 
 
 _fetcher = None
@@ -143,9 +190,12 @@ class DoubanFetcher:
         # cmd: ('fetch', url, cookie, future)
         self._cmd_queue.put(('fetch', url, cookie, future))
 
+        # Buffer 需要足够大以容纳 fetch_with_retry 的重试延迟：
+        # 最坏情况：3 次重试 + 每次 AntiCrawlBlock 延迟 30-60s + 每次 fetch 耗时 45s
+        # ≈ 2*60 + 3*45 = 255s，取 300s 安全余量
         timeout_ms = settings.playwright_timeout_ms
         try:
-            return future.result(timeout=(timeout_ms / 1000) + 30)
+            return future.result(timeout=(timeout_ms / 1000) + 300)
         except TimeoutError:
             raise PageFetchTimeout(
                 f"Dispatch 线程超时: {url}"

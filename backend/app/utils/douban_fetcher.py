@@ -360,6 +360,22 @@ class DoubanFetcher:
                 raise AntiCrawlBlock(
                     f"HTTP {m.group(1)} 错误页面: {url}")
 
+            # Top 250 页面结构验证：检查是否包含电影列表的关键元素
+            # 防止返回登录墙、地区限制页或其他非预期内容
+            if "top250" in url.lower():
+                if "grid_view" not in html:
+                    # 记录页面标题用于诊断
+                    title_match = re.search(r'<title[^>]*>([^<]+)</title>', html[:1000])
+                    page_title = title_match.group(1).strip() if title_match else "N/A"
+                    logger.error(
+                        f"Top 250 页面结构异常: 缺少 grid_view 元素. "
+                        f"页面标题: {page_title}, URL: {url}, "
+                        f"HTML 前 500 字符: {html[:500]}"
+                    )
+                    raise AntiCrawlBlock(
+                        f"Top 250 页面结构异常（可能是登录墙或地区限制）: {url}"
+                    )
+
             # 请求间隔
             time.sleep(settings.douban_page_delay)
 

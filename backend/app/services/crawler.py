@@ -84,6 +84,20 @@ def crawl_top250() -> dict:
             url = f"https://movie.douban.com/top250?start={start}&filter="
             html = fetch_with_retry(partial(fetcher.fetch_page, url), context="top250_list")
             page_movies = parse_top250_page(html)
+
+            # 防御性检测：如果解析返回 0 部电影，立即报错并记录 HTML 片段
+            if len(page_movies) == 0:
+                html_snippet = html[:1000] if len(html) > 1000 else html
+                logger.error(
+                    f"Page parsing returned 0 movies for start={start}. "
+                    f"HTML snippet (first 1000 chars):\n{html_snippet}"
+                )
+                raise RuntimeError(
+                    f"Top 250 page parsing failed: expected movies but got 0 for start={start}. "
+                    f"This usually means the HTML structure is different than expected. "
+                    f"Check the logs for HTML snippet."
+                )
+
             all_movies.extend(page_movies)
             crawl_progress["movies_found"] = len(all_movies)
 

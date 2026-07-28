@@ -16,7 +16,6 @@
           <VersionDropdown
             :versions="versionsAList"
             v-model="versionAId"
-            @update:modelValue="onSelectChange"
           />
         </div>
 
@@ -33,8 +32,8 @@
             </div>
           </div>
           <VersionDropdown
-            :versions="versionsBList"
-            v-model="versionBId"
+            :versions="usePrev ? versionsAList : versionsBList"
+            v-model="effectiveBId"
             :disabled="usePrev"
           />
         </div>
@@ -219,12 +218,6 @@ function syncToUrl() {
   router.replace({ query })
 }
 
-// 状态变化时自动同步URL并加载对比数据
-watch([sourceA, sourceB, usePrev, versionAId, versionBId], () => {
-  syncToUrl()
-  loadCompare()
-})
-
 // Flat version list filtered by source (tag descending)
 const versionsAList = computed(() =>
   versionsStore.versions
@@ -246,10 +239,24 @@ const computedPrevId = computed(() => {
   return null
 })
 
+// 版本B的有效ID：当usePrev为true时使用computedPrevId，否则使用versionBId
+// 这是一个派生状态，避免了手动同步的复杂性
+const effectiveBId = computed({
+  get: () => usePrev.value ? computedPrevId.value : versionBId.value,
+  // 只在非prev模式下允许写入，防止在prev模式下对effectiveBId的写入被静默忽略
+  set: (val) => { if (!usePrev.value) versionBId.value = val }
+})
+
+// 状态变化时自动同步URL并加载对比数据
+// usePrev 不需要显式监听，因为 effectiveBId 已依赖它，usePrev 变化时 effectiveBId 也会变化
+watch([sourceA, sourceB, versionAId, effectiveBId], () => {
+  syncToUrl()
+  loadCompare()
+})
+
 function setSourceA(src) {
   sourceA.value = src
   versionAId.value = versionsAList.value.length ? versionsAList.value[0].id : null
-  // watch 会自动触发 syncToUrl + loadCompare
 }
 
 function setSourceB(src) {
@@ -260,13 +267,6 @@ function setSourceB(src) {
 
 function setPrev() {
   usePrev.value = true
-  versionBId.value = computedPrevId.value
-}
-
-function onSelectChange() {
-  if (usePrev.value) {
-    versionBId.value = computedPrevId.value
-  }
 }
 
 onMounted(async () => {
@@ -276,9 +276,7 @@ onMounted(async () => {
     versionAId.value = versionsAList.value.length ? versionsAList.value[0].id : null
   }
 
-  if (usePrev.value) {
-    versionBId.value = computedPrevId.value
-  } else if (versionBId.value == null) {
+  if (!usePrev.value && versionBId.value == null) {
     versionBId.value = versionsBList.value.length ? versionsBList.value[0].id : null
   }
 
@@ -358,8 +356,7 @@ const displayData = computed(() => {
 })
 
 async function loadCompare() {
-  const effectiveB = usePrev.value ? computedPrevId.value : versionBId.value
-  if (!versionAId.value || !effectiveB) {
+  if (!versionAId.value || !effectiveBId.value) {
     rawData.value = null
     return
   }
@@ -368,7 +365,7 @@ async function loadCompare() {
   // Fix #2: 在新请求开始时立即清除旧的分布数据，防止过期数据在窗口期内显示
   compareDistData.value = null
   try {
-    const { data: result } = await fetchCompare(versionAId.value, effectiveB)
+    const { data: result } = await fetchCompare(versionAId.value, effectiveBId.value)
     rawData.value = result
 
     // Load distribution data when in cross-platform mode
